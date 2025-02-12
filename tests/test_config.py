@@ -1,5 +1,5 @@
 import pytest
-from src.email_sender.config import Config
+from email_sender.config import Config
 from configparser import ConfigParser
 
 @pytest.fixture
@@ -36,3 +36,4 @@ def test_email_config(sample_config_file):
     assert email_config["sender"] == "test@example.com"
     assert email_config["batch_size"] == 50
     assert email_config["xlsx_file"] == "test_emails.xlsx"
+    # Removendo o teste de test_recipient pois é opcional

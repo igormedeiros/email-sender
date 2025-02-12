@@ -22,6 +22,6 @@ class Config:
             "sender": self.config.get("email", "sender"),
             "batch_size": self.config.getint("email", "batch_size"),
             "xlsx_file": self.config.get("email", "xlsx_file"),
-            "test_recipient": self.config.get("email", "test_recipient"),
-            "default_subject": self.config.get("email", "default_subject")
+            "test_recipient": self.config.get("email", "test_recipient", fallback=None),
+            "default_subject": self.config.get("email", "default_subject", fallback=None)
         }

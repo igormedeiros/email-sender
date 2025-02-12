@@ -1,26 +1,22 @@
 import typer
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
-from rich.logging import RichHandler
 from pathlib import Path
-import logging
 from .config import Config
 from .email_service import EmailService
 from .utils.xlsx_reader import XLSXReader
 import time
 from datetime import datetime
+import signal
 
 app = typer.Typer()
-console = Console()
 
-# Configure logging with Rich handler
-logging.basicConfig(
-    level=logging.INFO,  # Changed back to INFO level
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True, console=console)]
-)
-log = logging.getLogger("email_sender")
+# Timeout handler
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException
+
+signal.signal(signal.SIGALRM, timeout_handler)
 
 def generate_report(start_time, end_time, total_sent, successful, failed, output_file):
     duration = end_time - start_time
@@ -51,7 +47,7 @@ def send_emails(
     config_file: str = typer.Option("dev.properties", "--config", "-c", help="Path to config file"),
 ):
     """
-    Send batch emails using a XLSX file and email template.
+    Send batch emails using a XLSX file and email template (Fast version).
     """
     try:
         config = Config(config_file)
@@ -61,68 +57,69 @@ def send_emails(
         xlsx_reader = XLSXReader(xlsx_path, config.email_config["batch_size"])
         
         total_records = xlsx_reader.total_records
-        if (total_records == 0):
-            console.print("\n⚠️ No emails to send! All emails have been sent or marked as failed.", style="yellow")
+        if total_records == 0:
+            print("⚠️ No emails to send!")
             return
             
-        log.info(f"Starting email send process using spreadsheet: {xlsx_path}")
-        log.info(f"Email subject: {email_subject}")
-        log.info("Press 'q' to quit at any time")
+        print(f"Starting email send process...")
+        print(f"Total emails to send: {total_records}")
         
         start_time = time.time()
         successful = 0
         failed = 0
+        current_record = 0
+        batch_delay = config.email_config.get("batch_delay", 60)
+        retry_attempts = config.email_config.get("retry_attempts", 5)
+        retry_delay = config.email_config.get("retry_delay", 60)
+        send_timeout = config.email_config.get("send_timeout", 10)
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-            console=console,
-            transient=True,  # This ensures the progress bar doesn't leave artifacts
-        ) as progress:
-            task = progress.add_task(
-                f"[cyan]Enviando emails... [white]({total_records} restantes)",
-                total=total_records
-            )
-            
-            import sys, select
-            current_record = 0
-            
-            for batch in xlsx_reader.get_batches():
-                # Check for 'q' key press between batches
-                if (sys.stdin in select.select([sys.stdin], [], [], 0)[0]):
-                    char = sys.stdin.read(1)
-                    if (char == 'q'):
-                        console.print("\n🛑 Process interrupted by user", style="yellow")
-                        break
-                
-                for recipient in batch:
+        for batch in xlsx_reader.get_batches():
+            for recipient in batch:
+                attempts = 0
+                while attempts < retry_attempts:
                     try:
-                        log.info(f"Sending email to: {recipient['email']}")
+                        print(f"Enviando para: {recipient['email']}")
+                        signal.alarm(send_timeout)  # Set timeout for email sending
                         email_service.send_batch([recipient], template, email_subject)
-                        xlsx_reader.mark_as_sent(recipient['email'])
+                        signal.alarm(0)  # Reset the alarm
                         successful += 1
-                    except Exception as e:
-                        log.error(f"Failed to send email to {recipient['email']}: {str(e)}")
-                        xlsx_reader.mark_as_failed(recipient['email'])
+                        break
+                    except TimeoutException:
+                        print(f"Timeout ao enviar para: {recipient['email']}")
                         failed += 1
-                    current_record += 1
-                    remaining = total_records - current_record
-                    progress.update(task, completed=current_record, description=f"[cyan]Enviando emails... [white]({remaining} restantes)")
+                        break
+                    except Exception as e:
+                        attempts += 1
+                        if attempts >= retry_attempts:
+                            print(f"Failed to send to {recipient['email']} after {retry_attempts} attempts: {str(e)}")
+                            failed += 1
+                        else:
+                            print(f"Retrying to send to {recipient['email']} in {retry_delay} seconds... (Attempt {attempts}/{retry_attempts})")
+                            if retry_delay > 0:  # Only sleep if delay is greater than 0
+                                time.sleep(retry_delay)
+                signal.alarm(0)  # Ensure the alarm is reset after processing
+                current_record += 1
+                
+                # Minimal progress indication
+                if current_record % 50 == 0:
+                    print(f"Processed {current_record}/{total_records} emails")
+            
+            # Delay between batches
+            if batch_delay > 0:  # Only sleep if delay is greater than 0
+                print(f"Aguardando {batch_delay} segundos antes de enviar o próximo lote...")
+                time.sleep(batch_delay)
 
         end_time = time.time()
         report_file = f"email_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         report = generate_report(start_time, end_time, total_records, successful, failed, report_file)
         
-        console.print(f"\n✅ Email sending completed!", style="green")
-        console.print(f"📊 Report saved to: {report_file}", style="blue")
-        console.print("\nReport Summary:", style="yellow")
-        console.print(report)
+        print("\n✅ Email sending completed!")
+        print(f"📊 Report saved to: reports/{report_file}")
+        print("\nReport Summary:")
+        print(report)
     
     except Exception as e:
-        console.print(f"\n❌ Error: {str(e)}", style="red")
+        print(f"\n❌ Error: {str(e)}")
         raise typer.Exit(1)
 
 @app.command()
@@ -137,10 +134,10 @@ def test_smtp(
         email_service = EmailService(config)
         test_recipient = config.email_config.get("test_recipient")
         
-        if (not test_recipient):
+        if not test_recipient:
             raise ValueError("test_recipient not configured in properties file")
             
-        console.print("🔄 Testing SMTP connection...", style="yellow")
+        print("Testing SMTP connection...")
         
         message = "This is a test email from the email-sender application."
         
@@ -152,10 +149,10 @@ def test_smtp(
             )
             smtp.send_message(test_message)
             
-        console.print(f"✅ SMTP test successful! Test email sent to {test_recipient}", style="green")
+        print(f"✅ SMTP test successful! Test email sent to {test_recipient}")
     
     except Exception as e:
-        console.print(f"❌ SMTP test failed: {str(e)}", style="red")
+        print(f"❌ SMTP test failed: {str(e)}")
         raise typer.Exit(1)
 
 @app.command()
@@ -171,12 +168,12 @@ def clear_sent_flags(
         xlsx_path = xlsx_file or config.email_config["xlsx_file"]
         xlsx_reader = XLSXReader(xlsx_path)
         
-        console.print("🔄 Clearing sent flags...", style="yellow")
+        print("Clearing sent flags...")
         xlsx_reader.clear_sent_flags()
-        console.print("✅ All flags cleared successfully!", style="green")
+        print("✅ All flags cleared successfully!")
     
     except Exception as e:
-        console.print(f"❌ Error: {str(e)}", style="red")
+        print(f"❌ Error: {str(e)}")
         raise typer.Exit(1)
 
 if __name__ == "__main__":

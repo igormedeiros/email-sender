@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-from src.email_sender.utils.csv_reader import CSVReader
+from email_sender.utils.csv_reader import CSVReader
 
 @pytest.fixture
 def sample_csv_file(tmp_path):
