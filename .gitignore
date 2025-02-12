@@ -1,0 +1,68 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+.env/
+.venv/
+
+# IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Credentials and sensitive data
+*.env
+.env
+*.properties
+dev.properties
+prod.properties
+*credentials*
+*password*
+
+# Spreadsheets and data files
+*.xlsx
+*.xls
+*.csv
+*.ods
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Logs
+*.log
+logs/
+email_report_*.txt
+
+# Text files
+*.txt
+
+# Exceptions - template/example files that should be versioned
+!example.properties
+!template.properties
+!example.env
+!example_emails.xlsx
+!tests/test_data/*.xlsx
+!tests/test_data/*.csv
+!src/email_sender/templates/*.txt
