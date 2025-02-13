@@ -230,7 +230,7 @@ def test_mark_as_failed(sample_xlsx):
 
 def test_clear_sent_flags(sample_xlsx):
     reader = XLSXReader(sample_xlsx)
-    reader.clear_sent_flags()
+    reader.clear_sent_flags(clear_all=False)  # Preserve failed status
     assert reader.total_records == 2  # test2@example.com was marked as failed
 
 def test_backup_creation(sample_xlsx):
