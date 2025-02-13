@@ -6,8 +6,11 @@ from .utils.xlsx_reader import XLSXReader
 import time
 from datetime import datetime
 import signal
+import sys
+import logging
 
 app = typer.Typer()
+log = logging.getLogger("email_sender")
 
 # Timeout handler
 class TimeoutException(Exception):
@@ -16,7 +19,13 @@ class TimeoutException(Exception):
 def timeout_handler(signum, frame):
     raise TimeoutException
 
+def interrupt_handler(signum, frame):
+    print("\nProcess interrupted by user. Saving progress...")
+    sys.exit(1)
+
+# Set up signal handlers
 signal.signal(signal.SIGALRM, timeout_handler)
+signal.signal(signal.SIGINT, interrupt_handler)
 
 def generate_report(start_time, end_time, total_sent, successful, failed, output_file):
     duration = end_time - start_time
@@ -63,6 +72,7 @@ def send_emails(
             
         print(f"Starting email send process...")
         print(f"Total emails to send: {total_records}")
+        print("Press Ctrl+C to safely stop the process")
         
         start_time = time.time()
         successful = 0
@@ -73,42 +83,75 @@ def send_emails(
         retry_delay = config.email_config.get("retry_delay", 60)
         send_timeout = config.email_config.get("send_timeout", 10)
         
-        for batch in xlsx_reader.get_batches():
-            for recipient in batch:
-                attempts = 0
-                while attempts < retry_attempts:
-                    try:
-                        print(f"Enviando para: {recipient['email']}")
-                        signal.alarm(send_timeout)  # Set timeout for email sending
-                        email_service.send_batch([recipient], template, email_subject)
-                        signal.alarm(0)  # Reset the alarm
-                        successful += 1
-                        break
-                    except TimeoutException:
-                        print(f"Timeout ao enviar para: {recipient['email']}")
-                        failed += 1
-                        break
-                    except Exception as e:
-                        attempts += 1
-                        if attempts >= retry_attempts:
-                            print(f"Failed to send to {recipient['email']} after {retry_attempts} attempts: {str(e)}")
-                            failed += 1
-                        else:
-                            print(f"Retrying to send to {recipient['email']} in {retry_delay} seconds... (Attempt {attempts}/{retry_attempts})")
-                            if retry_delay > 0:  # Only sleep if delay is greater than 0
-                                time.sleep(retry_delay)
-                signal.alarm(0)  # Ensure the alarm is reset after processing
-                current_record += 1
+        try:
+            for batch in xlsx_reader.get_batches():
+                batch_successful = []  # Keep track of successful sends in this batch
+                batch_failed = 0  # Count failures in this batch
                 
-                # Minimal progress indication
-                if current_record % 50 == 0:
-                    print(f"Processed {current_record}/{total_records} emails")
-            
-            # Delay between batches
-            if batch_delay > 0:  # Only sleep if delay is greater than 0
-                print(f"Aguardando {batch_delay} segundos antes de enviar o próximo lote...")
-                time.sleep(batch_delay)
+                for recipient in batch:
+                    attempts = 0
+                    while attempts < retry_attempts:
+                        try:
+                            print(f"Enviando para: {recipient['email']}")
+                            signal.alarm(send_timeout)  # Set timeout for email sending
+                            email_service.send_batch([recipient], template, email_subject)
+                            signal.alarm(0)  # Reset the alarm
+                            successful += 1
+                            batch_successful.append(recipient['email'])  # Add to successful list
+                            break
+                        except TimeoutException:
+                            print(f"Timeout ao enviar para: {recipient['email']}")
+                            failed += 1
+                            batch_failed += 1
+                            break
+                        except Exception as e:
+                            attempts += 1
+                            if attempts >= retry_attempts:
+                                print(f"Failed to send to {recipient['email']} after {retry_attempts} attempts: {str(e)}")
+                                failed += 1
+                                batch_failed += 1
+                            else:
+                                print(f"Retrying to send to {recipient['email']} in {retry_delay} seconds... (Attempt {attempts}/{retry_attempts})")
+                                if retry_delay > 0:  # Only sleep if delay is greater than 0
+                                    time.sleep(retry_delay)
+                    signal.alarm(0)  # Ensure the alarm is reset after processing
+                    current_record += 1
+                    
+                    # Progress indication every 50 emails
+                    if current_record % 50 == 0:
+                        percentage = (current_record / total_records) * 100
+                        print(f"Progresso: {current_record}/{total_records} emails processados ({percentage:.1f}%)")
+                
+                # Mark all successful emails in this batch before delay
+                for email in batch_successful:
+                    xlsx_reader.mark_as_sent(email)
+                
+                # Summary after each batch
+                batch_size = len(batch_successful) + batch_failed
+                batch_success_rate = (len(batch_successful) / batch_size) * 100 if batch_size > 0 else 0
+                total_success_rate = (successful / current_record) * 100 if current_record > 0 else 0
+                remaining = total_records - current_record
+                
+                print("\nResumo do lote atual:")
+                print(f"✓ Enviados neste lote: {len(batch_successful)}")
+                print(f"✗ Falhas neste lote: {batch_failed}")
+                print(f"Taxa de sucesso do lote: {batch_success_rate:.1f}%")
+                print("\nResumo geral:")
+                print(f"✓ Total enviados: {successful}")
+                print(f"✗ Total falhas: {failed}")
+                print(f"Taxa de sucesso geral: {total_success_rate:.1f}%")
+                print(f"Faltam: {remaining} emails\n")
+                
+                # Delay between batches
+                if batch_delay > 0:  # Only sleep if delay is greater than 0
+                    print(f"Aguardando {batch_delay} segundos antes do próximo lote...")
+                    time.sleep(batch_delay)
 
+        except KeyboardInterrupt:
+            print("\nProcesso interrompido pelo usuário.")
+            print("Salvando progresso...")
+            # The XLSXReader will handle the safe shutdown
+        
         end_time = time.time()
         report_file = f"email_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         report = generate_report(start_time, end_time, total_records, successful, failed, report_file)

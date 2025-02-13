@@ -34,6 +34,7 @@ prod.properties
 *.xls
 *.csv
 *.ods
+*.bak
 
 # Unit test / coverage reports
 htmlcov/
