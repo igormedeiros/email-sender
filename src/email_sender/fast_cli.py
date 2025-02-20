@@ -8,6 +8,8 @@ from datetime import datetime
 import signal
 import sys
 import logging
+import pandas as pd
+from typing import List, Dict
 
 app = typer.Typer()
 log = logging.getLogger("email_sender")
@@ -48,6 +50,18 @@ Tempo médio por email: {avg_time:.2f} segundos
         f.write(report)
     return report
 
+def load_blacklist(blacklist_file: str = "black_list.csv") -> List[str]:
+    """Load blacklisted emails from CSV file"""
+    try:
+        df = pd.read_csv(blacklist_file)
+        return df['email'].str.lower().tolist()
+    except FileNotFoundError:
+        print(f"⚠️ Blacklist file {blacklist_file} not found. Proceeding without blacklist.")
+        return []
+    except Exception as e:
+        print(f"⚠️ Error loading blacklist: {str(e)}. Proceeding without blacklist.")
+        return []
+
 @app.command()
 def send_emails(
     xlsx_file: str = typer.Option(None, help="Path to XLSX file containing email recipients"),
@@ -83,12 +97,20 @@ def send_emails(
         retry_delay = config.email_config.get("retry_delay", 60)
         send_timeout = config.email_config.get("send_timeout", 10)
         
+        blacklist = load_blacklist()
+        
         try:
             for batch in xlsx_reader.get_batches():
                 batch_successful = []  # Keep track of successful sends in this batch
                 batch_failed = 0  # Count failures in this batch
                 
                 for recipient in batch:
+                    if recipient['email'].lower() in blacklist:
+                        print(f"⚠️ Email {recipient['email']} is blacklisted. Skipping.")
+                        failed += 1
+                        batch_failed += 1
+                        continue
+                    
                     attempts = 0
                     while attempts < retry_attempts:
                         try:
@@ -217,6 +239,39 @@ def clear_sent_flags(
     
     except Exception as e:
         print(f"❌ Error: {str(e)}")
+        raise typer.Exit(1)
+
+@app.command()
+def test_send(
+    template: str = typer.Argument(..., help="Name of the template file to use"),
+    subject: str = typer.Option(None, "--subject", "-s", help="Email subject (optional, uses default from config if not provided)"),
+    config_file: str = typer.Option("dev.properties", "--config", "-c", help="Path to config file"),
+):
+    """
+    Send test emails using a predefined test.xlsx file.
+    """
+    try:
+        config = Config(config_file)
+        email_service = EmailService(config)
+        xlsx_path = "test.xlsx"
+        email_subject = subject or config.email_config["default_subject"]
+        
+        if not Path(xlsx_path).exists():
+            print(f"❌ Test file {xlsx_path} not found!")
+            raise typer.Exit(1)
+            
+        xlsx_reader = XLSXReader(xlsx_path, config.email_config["batch_size"])
+        
+        # Reuse the send_emails logic but with test.xlsx
+        send_emails(
+            xlsx_file=xlsx_path,
+            template=template,
+            subject=email_subject,
+            config_file=config_file
+        )
+        
+    except Exception as e:
+        print(f"\n❌ Error: {str(e)}")
         raise typer.Exit(1)
 
 if __name__ == "__main__":
