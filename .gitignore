@@ -17,6 +17,7 @@ env/
 # IDE settings
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 
@@ -29,12 +30,24 @@ prod.properties
 *credentials*
 *password*
 
-# Spreadsheets and data files
+# Configuration files
+config/*.yaml
+config/*.yml
+*.yaml
+*.yml
+
+# Email templates
+templates/*.html
+templates/*.htm
+templates/*.txt
+
+# Spreadsheets and data files - NUNCA versionar arquivos CSV
 *.xlsx
 *.xls
 *.csv
 *.ods
 *.bak
+data/
 
 # Unit test / coverage reports
 htmlcov/
@@ -55,15 +68,25 @@ cover/
 *.log
 logs/
 email_report_*.txt
+reports/
 
 # Text files
 *.txt
 
 # Exceptions - template/example files that should be versioned
+!.env.example
 !example.properties
 !template.properties
 !example.env
 !example_emails.xlsx
 !tests/test_data/*.xlsx
-!tests/test_data/*.csv
-!src/email_sender/templates/*.txt
+!tests/test_data/*.yaml
+!tests/test_data/*.yml
+!tests/templates/*.html
+!tests/templates/*.txt
+!requirements.txt
+!README.md
+!example_config.yaml
+!example_email.yaml
+!templates/*.html.example
+!example_emails.csv.md

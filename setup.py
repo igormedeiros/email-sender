@@ -11,5 +11,8 @@ setup(
         "python-dotenv>=1.0.0",
         "jinja2>=3.1.2",
         "pandas>=2.1.1",
+        "requests",
+        "beautifulsoup4",
+        "flask",
     ],
 )

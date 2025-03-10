@@ -1,0 +1,66 @@
+<!--
+Arquivo de exemplo para o template de email
+Copie este arquivo para templates/email.html e faça as modificações necessárias
+As variáveis entre chaves {} serão substituídas pelos valores do arquivo config/email.yaml
+-->
+
+<html>
+
+<body style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto; color: #333;">
+
+    <p>Olá,</p>
+
+    <p>Se você busca <strong>aprimorar suas habilidades</strong> e se <strong>destacar ainda mais</strong> no setor
+        elétrico, essa é a <strong style="color: #0066CC;">oportunidade que não pode perder!</strong></p>
+
+    <p><strong>Nos dias {data_evento}</strong>, acontece presencialmente o <strong
+            style="font-size: 1.1em; color: #0066CC;">PowerTreine em {cidade}</strong>.</p>
+
+    <p style="text-align: center; margin: 25px 0;">
+        <a href="{link_evento}"
+            style="background-color: #0066CC; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block; box-shadow: 0 3px 6px rgba(0,0,0,0.16);">
+            👉 CLIQUE AQUI PARA GARANTIR SEU DESCONTO! 👈
+        </a>
+    </p>
+
+    <!-- Conteúdo principal do email -->
+    <p>Durante <strong>dois dias de treinamento intensivo</strong>, você terá acesso a <strong>conteúdos práticos e
+            direcionados</strong> sobre proteção e
+        seletividade em projetos de média tensão e geração distribuída.</p>
+
+    <!-- Detalhes do evento em uma seção destacada -->
+    <div style="background-color: #f8f8f8; padding: 15px; border-radius: 5px; margin: 15px 0;">
+        <p style="margin: 0;"><strong>Detalhes do evento:</strong></p>
+        <p style="margin: 8px 0 0 0;">📅 <strong>Data:</strong> {data_evento}</p>
+        <p style="margin: 8px 0 0 0;">📍 <strong>Local:</strong> {local}</p>
+        <p style="margin: 8px 0 0 0;">⏰ <strong>Horário:</strong> 9h às 18h (ambos os dias)</p>
+    </div>
+
+    <!-- 
+    Exemplo de parágrafo condicional baseado em valores do email.yaml
+    Este parágrafo só aparecerá se o valor "desconto" estiver definido
+    -->
+    {desconto_paragrafo}
+
+    <p style="text-align: center; margin: 25px 0;">
+        <a href="{link_evento}"
+            style="background-color: #0066CC; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block; box-shadow: 0 3px 6px rgba(0,0,0,0.16);">
+            👉 GARANTA SUA VAGA AGORA! 👈
+        </a>
+    </p>
+
+    <p>Te vejo ao vivo no <strong>evento em {cidade}!</strong></p>
+
+    <p>Um abraço,<br>
+        <strong>Seu Nome</strong>
+    </p>
+
+    <!-- Rodapé com link de descadastro -->
+    <hr style="margin-top: 30px; border: none; border-top: 1px solid #ddd;">
+    <p style="font-size: 12px; color: #777; text-align: center;">
+        Para descadastrar-se dessa lista, <a href="{unsubscribe_url}?email={email}" style="color: #777;">clique aqui</a>
+    </p>
+
+</body>
+
+</html> 

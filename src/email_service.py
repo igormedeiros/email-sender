@@ -74,7 +74,7 @@ class EmailService:
                 except:
                     pass
 
-    def _create_message(self, to_email: str, subject: str, text_content: str) -> MIMEMultipart:
+    def _create_message(self, to_email: str, subject: str, content: str, is_html: bool = False) -> MIMEMultipart:
         message = MIMEMultipart("alternative")
         message["Subject"] = subject
         sender_email = self._extract_email_address(self.config.email_config["sender"])
@@ -83,8 +83,22 @@ class EmailService:
         message["Return-Path"] = sender_email
         message["To"] = to_email
         
-        text_part = MIMEText(text_content, "plain")
-        message.attach(text_part)
+        # Se não for HTML, envia como texto simples
+        if not is_html:
+            text_part = MIMEText(content, "plain", "utf-8")
+            message.attach(text_part)
+        # Se for HTML, envia a parte HTML e também uma versão em texto simples convertida
+        else:
+            # Versão texto simples - versão básica sem formatação
+            text_content = re.sub(r'<.*?>', '', content)
+            text_content = re.sub(r'\s+', ' ', text_content)
+            text_part = MIMEText(text_content, "plain", "utf-8")
+            message.attach(text_part)
+            
+            # Versão HTML
+            html_part = MIMEText(content, "html", "utf-8")
+            message.attach(html_part)
+            
         return message
 
     def _read_template(self, template_path: str) -> str:
@@ -93,22 +107,46 @@ class EmailService:
 
     def _format_template(self, template: str, recipient: Dict) -> str:
         """Format template with recipient data."""
-        return template.format(**recipient)
+        # Substituir parâmetros do formato {param}
+        result = template
+        for key, value in recipient.items():
+            placeholder = '{' + key + '}'
+            result = result.replace(placeholder, str(value))
+        return result
 
-    def send_batch(self, recipients: List[Dict], template_path: str, subject: str) -> None:
-        template_content = self._read_template(template_path)
-        
+    def send_batch(self, recipients: List[Dict], content: str, subject: str, is_html: bool = False) -> None:
         try:
+            log.info(f"Iniciando envio em lote para {len(recipients)} destinatários")
+            log.info(f"Modo HTML: {'Sim' if is_html else 'Não'}")
+            
             with self._create_smtp_connection() as smtp:
                 for recipient in recipients:
                     try:
-                        formatted_content = self._format_template(template_content, recipient)
+                        # Formatar o conteúdo com os dados do destinatário
+                        formatted_content = self._format_template(content, recipient)
+                        
+                        # Criar a mensagem
                         message = self._create_message(
                             to_email=recipient["email"],
                             subject=subject,
-                            text_content=formatted_content
+                            content=formatted_content,
+                            is_html=is_html
                         )
-                        smtp.send_message(message)
+                        
+                        # Log de debug antes do envio
+                        log.info(f"Pronto para enviar email para: {recipient['email']}")
+                        
+                        # Enviar a mensagem
+                        try:
+                            smtp.send_message(message)
+                            log.info(f"Email enviado com sucesso para: {recipient['email']}")
+                        except smtplib.SMTPException as smtp_error:
+                            log.error(f"Erro SMTP ao enviar para {recipient['email']}: {str(smtp_error)}")
+                            raise smtp_error
+                        except Exception as send_error:
+                            log.error(f"Erro geral ao enviar para {recipient['email']}: {str(send_error)}")
+                            raise send_error
+                            
                     except smtplib.SMTPServerDisconnected:
                         # Se a conexão foi perdida, tenta reconectar e reenviar este email
                         log.warning("Conexão SMTP perdida. Tentando reconectar...")
@@ -116,6 +154,7 @@ class EmailService:
                             new_smtp.send_message(message)
                     except Exception as e:
                         # Outros erros devem ser propagados
+                        log.error(f"Erro no processamento do destinatário {recipient['email']}: {str(e)}")
                         raise e
         except Exception as e:
             log.error(f"Erro no envio em lote: {str(e)}")
