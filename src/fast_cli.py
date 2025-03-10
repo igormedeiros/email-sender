@@ -50,27 +50,27 @@ Tempo médio por email: {avg_time:.2f} segundos
         f.write(report)
     return report
 
-def load_blacklist(blacklist_file: str = "black_list.csv") -> List[str]:
-    """Load blacklisted emails from CSV file"""
+def load_blacklist(blacklist_file: str = "descadastros.csv") -> List[str]:
+    """Load unsubscribed emails from CSV file"""
     try:
         df = pd.read_csv(blacklist_file)
         return df['email'].str.lower().tolist()
     except FileNotFoundError:
-        print(f"⚠️ Blacklist file {blacklist_file} not found. Proceeding without blacklist.")
+        print(f"⚠️ Unsubscribed emails file {blacklist_file} not found. Proceeding without list.")
         return []
     except Exception as e:
-        print(f"⚠️ Error loading blacklist: {str(e)}. Proceeding without blacklist.")
+        print(f"⚠️ Error loading unsubscribed emails: {str(e)}. Proceeding without list.")
         return []
 
 @app.command()
 def send_emails(
     xlsx_file: str = typer.Option(None, help="Path to XLSX file containing email recipients"),
-    template: str = typer.Argument(..., help="Name of the template file to use"),
+    template: str = typer.Argument(..., help="Name of the HTML template file to use"),
     subject: str = typer.Option(None, "--subject", "-s", help="Email subject (optional, uses default from config if not provided)"),
     config_file: str = typer.Option("dev.properties", "--config", "-c", help="Path to config file"),
 ):
     """
-    Send batch emails using a XLSX file and email template (Fast version).
+    Send batch HTML emails using a XLSX file and HTML email template (Fast version).
     """
     try:
         config = Config(config_file)
@@ -79,12 +79,16 @@ def send_emails(
         email_subject = subject or config.email_config["default_subject"]
         xlsx_reader = XLSXReader(xlsx_path, config.email_config["batch_size"])
         
+        # Ensure template has .html extension
+        if not template.endswith('.html'):
+            template += '.html'
+
         total_records = xlsx_reader.total_records
         if total_records == 0:
             print("⚠️ No emails to send!")
             return
             
-        print(f"Starting email send process...")
+        print(f"Starting HTML email send process...")
         print(f"Total emails to send: {total_records}")
         print("Press Ctrl+C to safely stop the process")
         
@@ -116,7 +120,15 @@ def send_emails(
                         try:
                             print(f"Enviando para: {recipient['email']}")
                             signal.alarm(send_timeout)  # Set timeout for email sending
-                            email_service.send_batch([recipient], template, email_subject)
+                            
+                            # Load and modify HTML template
+                            with open(template, 'r', encoding='utf-8') as file:
+                                html_content = file.read()
+                            html_content = html_content.replace("{unsubscribe_url}", config.email_config["unsubscribe_url"])
+                            html_content = html_content.replace("{email}", recipient['email'])
+                            
+                            # Use modified HTML template for sending
+                            email_service.send_batch([recipient], html_content, email_subject, is_html=True)
                             signal.alarm(0)  # Reset the alarm
                             successful += 1
                             batch_successful.append(recipient['email'])  # Add to successful list

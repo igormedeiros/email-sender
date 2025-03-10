@@ -6,8 +6,14 @@ from datetime import datetime
 
 app = FastAPI()
 
-EMAILS_FILE = "emails_treineinsite.xlsx"
-UNSUBSCRIBE_FILE = "descadastros.csv"
+def load_properties():
+    with open('dev.properties', 'r') as f:
+        props = dict(line.strip().split('=') for line in f if '=' in line and not line.startswith('#'))
+    return props
+
+props = load_properties()
+EMAILS_FILE = props['xlsx_file']
+UNSUBSCRIBE_FILE = props['unsubscribe_file']
 
 def remove_from_xlsx(email: str) -> bool:
     """Remove email from xlsx file and add to unsubscribe list"""
