@@ -1,0 +1,122 @@
+# Configurações da API REST
+# -------------------------------------------------
+
+# Configurações do servidor
+server:
+  host: "0.0.0.0"    # Host onde a API será exposta (0.0.0.0 para todas as interfaces)
+  port: 5000          # Porta HTTP para a API
+  debug: true         # Modo de depuração (true/false)
+  
+# Configurações de segurança
+security:
+  enable_cors: true           # Habilitar CORS (Cross-Origin Resource Sharing)
+  allowed_origins: "*"        # Origens permitidas para CORS (* para todas)
+  require_api_key: false      # Exigir chave de API para acessar os endpoints
+  api_key_header: "X-API-Key" # Nome do cabeçalho que contém a chave de API
+  api_keys: []                # Lista de chaves de API válidas
+  rate_limiting:
+    enabled: true             # Habilitar limite de requisições
+    requests_per_minute: 60   # Número máximo de requisições por minuto
+  
+  jwt:
+    enabled: true
+    secret_key: "${JWT_SECRET_KEY}"  # Use uma variável de ambiente para o segredo
+    token_expiry_hours: 24
+    refresh_token_expiry_hours: 168  # 7 dias
+    algorithm: "HS256"
+  
+# Configurações de logs
+logging:
+  level: "INFO"               # Nível de log (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  file: "logs/rest_api.log"   # Arquivo de log (deixe vazio para usar stdout)
+  
+# Configurações de timeout
+timeout:
+  request: 60                 # Timeout para requisições em segundos
+  
+# Configurações de endpoints
+endpoints:
+  # Health check
+  health:
+    enabled: true
+    path: "/api/health"
+    methods: ["GET"]
+    
+  # Operações de email
+  email:
+    enabled: true
+    base_path: "/api/emails"
+    operations:
+      send:
+        enabled: true
+        path: "/send"
+        methods: ["POST"]
+        require_auth: false
+      
+      test_smtp:
+        enabled: true
+        path: "/test-smtp"
+        methods: ["POST"]
+        require_auth: false
+      
+      clear_flags:
+        enabled: true
+        path: "/clear-flags"
+        methods: ["POST"]
+        require_auth: false
+      
+      sync_unsubscribed:
+        enabled: true
+        path: "/sync-unsubscribed"
+        methods: ["POST"]
+        require_auth: false
+  
+  # Operações de configuração
+  config:
+    enabled: true
+    base_path: "/api/config"
+    operations:
+      get_config:
+        enabled: true
+        path: "/"
+        methods: ["GET"]
+        require_auth: false
+      
+      update_config:
+        enabled: true
+        path: "/"
+        methods: ["PUT"]
+        require_auth: false
+      
+      partial_update:
+        enabled: true
+        path: "/partial"
+        methods: ["PATCH"]
+        require_auth: false
+
+  auth:
+    enabled: true
+    base_url: "/api/auth"
+    rate_limit: "5 per minute"
+    routes:
+      - path: "/login"
+        methods: ["POST"]
+        enabled: true
+        requires_auth: false
+      - path: "/refresh"
+        methods: ["POST"]
+        enabled: true
+        requires_auth: false
+      - path: "/verify"
+        methods: ["GET"]
+        enabled: true
+        requires_auth: true
+
+# Configurações de documentação
+documentation:
+  enabled: true
+  path: "/api/docs"
+  title: "Email Sender API"
+  description: "API para gerenciamento de envios de email"
+  version: "1.0.0"
+  openapi_file: "config/api-docs.yaml" 

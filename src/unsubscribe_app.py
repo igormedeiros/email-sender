@@ -85,7 +85,7 @@ def remove_from_unsubscribe_list(email: str) -> bool:
         df = df[df['email'].str.strip() != email.strip()]
         
         # Salva o arquivo atualizado
-        df.to_csv(file_path, index=False, header=False)
+        df.to_csv(file_path, index=False, header=False, lineterminator='\n')
         
         return True
     except Exception as e:
