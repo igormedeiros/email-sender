@@ -1,0 +1,36 @@
+[run]
+source = .
+omit =
+    */venv/*
+    */tests/*
+    */.git/*
+    */migrations/*
+    */setup.py
+    */setup_dev.py
+    */conftest.py
+    */test_*.py
+    test_*.py
+    run_tests.sh
+    */__pycache__/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass
+    raise ImportError
+    except ImportError
+    raise NotImplementedError
+    
+[paths]
+source =
+    src/
+    */site-packages/
+
+[xml]
+output = reports/coverage.xml
+
+[html]
+directory = reports/coverage_html 

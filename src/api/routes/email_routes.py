@@ -48,6 +48,14 @@ def send_emails():
         # Obter serviço de email
         email_service = get_email_service()
         
+        # Aplicar título personalizado se fornecido
+        if data.titulo:
+            config = email_service.config
+            if "email" not in config.content_config:
+                config.content_config["email"] = {}
+            config.content_config["email"]["subject"] = data.titulo
+            current_app.logger.info(f"Usando título personalizado: {data.titulo}")
+        
         # Processar o envio
         result = email_service.process_email_sending(
             csv_file=data.csv_file,
@@ -204,4 +212,28 @@ def sync_unsubscribed():
 @email_bp.route('/config', methods=['GET'])
 @role_required('admin')
 def get_email_config():
-    # ... existing code ... 
+    """
+    Retorna as configurações de email.
+    
+    Returns:
+        Configurações de email formatadas como JSON
+    """
+    try:
+        config = Config()
+        email_config = {
+            "smtp": {
+                "host": config.smtp_config.get("host", ""),
+                "port": config.smtp_config.get("port", ""),
+                "use_tls": config.smtp_config.get("use_tls", True),
+                "username": config.smtp_config.get("username", "")
+                # Não incluir senha por segurança
+            },
+            "email": config.content_config.get("email", {}),
+            "urls": config.content_config.get("urls", {}),
+            "evento": config.content_config.get("evento", {})
+        }
+        
+        return jsonify(email_config)
+        
+    except Exception as e:
+        return error_response(f"Erro ao obter configurações: {str(e)}", 500) 

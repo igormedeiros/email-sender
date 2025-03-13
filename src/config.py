@@ -5,7 +5,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
-from .utils.secrets_manager import SecretsManager, SecretSource
+from src.utils.secrets_manager import SecretsManager, SecretSource
 
 logger = logging.getLogger(__name__)
 

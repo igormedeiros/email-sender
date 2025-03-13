@@ -296,6 +296,33 @@ Parâmetros opcionais:
 
 Este comando limpa as colunas `enviado` e `falhou` do arquivo CSV, permitindo que emails já enviados ou que falharam anteriormente sejam processados novamente no próximo envio.
 
+#### Remover Duplicados
+
+Remove linhas duplicadas de um arquivo CSV baseado em uma coluna específica (por padrão, a coluna 'email'):
+
+```bash
+# Remoção básica (usa coluna 'email' e mantém a primeira ocorrência)
+python -m src.cli remove-duplicates data/emails_geral.csv
+
+# Especificando a coluna para verificar duplicados
+python -m src.cli remove-duplicates data/emails_geral.csv --column nome
+
+# Escolhendo qual ocorrência manter (primeira ou última)
+python -m src.cli remove-duplicates data/emails_geral.csv --keep last
+
+# Salvando em um novo arquivo em vez de substituir o original
+python -m src.cli remove-duplicates data/emails_geral.csv --output data/emails_sem_duplicados.csv
+```
+
+Este comando analisa o arquivo CSV, identifica duplicatas com base na coluna especificada, e mantém apenas uma ocorrência de cada valor único. Antes de modificar o arquivo original, o sistema cria automaticamente um backup de segurança.
+
+Parâmetros:
+- `csv_file`: Caminho para o arquivo CSV a ser processado (obrigatório)
+- `--column, -c`: Coluna a ser usada para identificar duplicados (padrão: "email")
+- `--keep, -k`: Qual ocorrência manter ("first" ou "last", padrão: "first")
+- `--output, -o`: Arquivo de saída (se não especificado, substitui o original)
+- `--config`: Caminho para o arquivo de configuração (padrão: config/config.yaml)
+
 ### API REST
 
 O sistema disponibiliza uma API REST para acessar todas as funcionalidades através de requisições HTTP, ideal para integração com outras aplicações.
@@ -359,289 +386,21 @@ http://localhost:5000/api/docs
 
 Esta interface permite explorar todos os endpoints disponíveis, seus parâmetros e até mesmo testar as chamadas diretamente do navegador.
 
-#### Endpoints Disponíveis
+#### Principais Endpoints
 
-##### Verificação de Status
+| Endpoint | Método | Descrição |
+|----------|--------|-----------|
+| `/api/health` | GET | Verificar status do serviço |
+| `/api/emails/send` | POST | Enviar emails em lote |
+| `/api/emails/test-smtp` | POST | Testar conexão SMTP |
+| `/api/emails/clear-flags` | POST | Limpar flags de envio |
+| `/api/emails/sync-unsubscribed` | POST | Sincronizar lista de descadastros |
+| `/api/csv/remove-duplicates` | POST | Remover linhas duplicadas de um CSV |
+| `/api/config` | GET | Obter configurações atuais |
+| `/api/config` | PUT | Atualizar configurações |
+| `/api/config/partial` | PATCH | Atualizar configurações parcialmente |
 
-```
-GET /api/health
-```
-
-Verifica se a API está funcionando corretamente.
-
-Exemplo de requisição:
-```bash
-curl -X GET http://localhost:5000/api/health
-```
-
-Exemplo de resposta:
-```json
-{
-  "status": "ok",
-  "timestamp": "2023-03-15T14:30:00Z"
-}
-```
-
-##### Envio de Emails
-
-```
-POST /api/emails/send
-```
-
-Envia emails em lote baseado nos parâmetros fornecidos.
-
-Exemplo de requisição:
-```bash
-curl -X POST http://localhost:5000/api/emails/send \
-  -H "Content-Type: application/json" \
-  -d '{
-    "csv_file": "data/emails.csv",
-    "template": "templates/email.html",
-    "skip_unsubscribed_sync": false,
-    "mode": "test"
-  }'
-```
-
-Parâmetros:
-- `template` (obrigatório): Nome ou caminho do template HTML
-- `mode` (obrigatório): Modo de envio ("test" ou "production")
-- `csv_file` (opcional): Caminho para o arquivo CSV
-- `skip_unsubscribed_sync` (opcional): Se deve ignorar a sincronização de descadastros
-
-Exemplo de resposta:
-```json
-{
-  "status": "success",
-  "message": "Emails enviados com sucesso",
-  "report": {
-    "report_file": "email_report_20230315_143000.txt",
-    "total_sent": 100,
-    "successful": 95,
-    "failed": 5,
-    "duration": 120.5,
-    "avg_time": 1.2
-  }
-}
-```
-
-##### Teste de Conexão SMTP
-
-```
-POST /api/emails/test-smtp
-```
-
-Testa a conexão SMTP enviando um email de teste.
-
-Exemplo de requisição:
-```bash
-curl -X POST http://localhost:5000/api/emails/test-smtp \
-  -H "Content-Type: application/json" \
-  -d '{
-    "recipient": "test@example.com"
-  }'
-```
-
-Parâmetros:
-- `recipient` (opcional): Email do destinatário para teste (usa o configurado em config.yaml se omitido)
-
-Exemplo de resposta:
-```json
-{
-  "status": "success",
-  "message": "Email de teste enviado para test@example.com"
-}
-```
-
-##### Limpar Flags de Envio
-
-```
-POST /api/emails/clear-flags
-```
-
-Limpa as flags de envio em um arquivo CSV.
-
-Exemplo de requisição:
-```bash
-curl -X POST http://localhost:5000/api/emails/clear-flags \
-  -H "Content-Type: application/json" \
-  -d '{
-    "csv_file": "data/emails.csv"
-  }'
-```
-
-Parâmetros:
-- `csv_file` (opcional): Caminho para o arquivo CSV (usa o configurado em config.yaml se omitido)
-
-Exemplo de resposta:
-```json
-{
-  "status": "success",
-  "message": "150 flags limpas com sucesso"
-}
-```
-
-##### Sincronizar Emails Descadastrados
-
-```
-POST /api/emails/sync-unsubscribed
-```
-
-Sincroniza a lista de emails descadastrados com o arquivo principal.
-
-Exemplo de requisição:
-```bash
-curl -X POST http://localhost:5000/api/emails/sync-unsubscribed \
-  -H "Content-Type: application/json" \
-  -d '{
-    "csv_file": "data/emails.csv",
-    "unsubscribe_file": "data/descadastros.csv"
-  }'
-```
-
-Parâmetros:
-- `csv_file` (opcional): Caminho para o arquivo CSV principal
-- `unsubscribe_file` (opcional): Caminho para o arquivo de descadastros
-
-Exemplo de resposta:
-```json
-{
-  "status": "success",
-  "message": "50 emails sincronizados",
-  "csv_file": "data/emails.csv",
-  "unsubscribe_file": "data/descadastros.csv"
-}
-```
-
-##### Obter Configurações
-
-```
-GET /api/config
-```
-
-Retorna as configurações atuais do arquivo email.yaml.
-
-Exemplo de requisição:
-```bash
-curl -X GET http://localhost:5000/api/config
-```
-
-Exemplo de resposta:
-```json
-{
-  "evento": {
-    "link": "https://exemplo.com/evento",
-    "data": "15 e 16 de março",
-    "cidade": "Sua Cidade",
-    "local": "Nome do Local, Sua Cidade - UF"
-  },
-  "promocao": {
-    "desconto": "30%"
-  },
-  "email": {
-    "subject": "Aprenda Proteção e Seletividade"
-  },
-  "urls": {
-    "unsubscribe": "https://seu-site.com/unsubscribe",
-    "subscribe": "https://seu-site.com/resubscribe"
-  }
-}
-```
-
-##### Atualizar Configurações
-
-```
-PUT /api/config
-```
-
-Substitui completamente o arquivo email.yaml com as novas configurações.
-
-Exemplo de requisição:
-```bash
-curl -X PUT http://localhost:5000/api/config \
-  -H "Content-Type: application/json" \
-  -d '{
-    "evento": {
-      "link": "https://novo-site.com/evento",
-      "data": "20 e 21 de abril",
-      "cidade": "Nova Cidade",
-      "local": "Novo Local, Nova Cidade - UF"
-    },
-    "promocao": {
-      "desconto": "40%"
-    },
-    "email": {
-      "subject": "Novo Curso Disponível"
-    },
-    "urls": {
-      "unsubscribe": "https://novo-site.com/unsubscribe",
-      "subscribe": "https://novo-site.com/resubscribe"
-    }
-  }'
-```
-
-Parâmetros:
-- Corpo da requisição: Objeto JSON com todas as configurações
-
-Exemplo de resposta:
-```json
-{
-  "status": "success",
-  "message": "Configurações atualizadas com sucesso",
-  "backup_file": "config/email.backup_20230315_143000.yaml"
-}
-```
-
-##### Atualizar Configurações Parcialmente
-
-```
-PATCH /api/config/partial
-```
-
-Atualiza apenas os campos especificados no email.yaml, mantendo os demais inalterados.
-
-Exemplo de requisição:
-```bash
-curl -X PATCH http://localhost:5000/api/config/partial \
-  -H "Content-Type: application/json" \
-  -d '{
-    "promocao": {
-      "desconto": "50%"
-    },
-    "email": {
-      "subject": "Oferta Especial"
-    }
-  }'
-```
-
-Parâmetros:
-- Corpo da requisição: Objeto JSON com os campos a serem atualizados
-
-Exemplo de resposta:
-```json
-{
-  "status": "success",
-  "message": "Configurações atualizadas parcialmente com sucesso",
-  "backup_file": "config/email.backup_20230315_143500.yaml"
-}
-```
-
-#### Códigos de Erro
-
-A API retorna os seguintes códigos de status HTTP:
-
-- **200 OK**: Requisição processada com sucesso
-- **400 Bad Request**: Parâmetros inválidos ou faltando
-- **404 Not Found**: Recurso não encontrado
-- **422 Unprocessable Entity**: Validação de schema falhou
-- **429 Too Many Requests**: Limite de taxa excedido (se rate limiting estiver habilitado)
-- **500 Internal Server Error**: Erro interno do servidor
-
-Em caso de erro, a resposta terá o seguinte formato:
-```json
-{
-  "error": "Mensagem detalhada do erro"
-}
-```
+Consulte a documentação OpenAPI completa em `/api/docs` para detalhes sobre parâmetros, respostas e exemplos de cada endpoint.
 
 ## 📊 Estrutura dos Dados
 
@@ -854,103 +613,4 @@ Os seguintes endpoints estão protegidos:
 | `/api/emails/sync-unsubscribed` | POST | role_required('admin') | Sincronizar descadastros |
 | `/api/config` | GET | role_required('admin') | Obter configurações |
 | `/api/config` | PUT | role_required('admin') | Atualizar configurações |
-| `/api/config/partial` | PATCH | role_required('admin') | Atualizar parcialmente |
-| `/api/docs` | GET | token_required | Documentação da API |
-| `/api/docs/swagger.json` | GET | token_required | Especificação OpenAPI |
-
-### Endpoints de Autenticação
-
-1. **Login** - `/api/auth/login` (POST)
-   - Recebe credenciais e retorna token de acesso
-   - Payload:
-     ```json
-     {
-       "username": "seu_usuario",
-       "password": "sua_senha"
-     }
-     ```
-   - Resposta:
-     ```json
-     {
-       "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-       "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-       "token_type": "bearer"
-     }
-     ```
-
-2. **Verificar Token** - `/api/auth/verify` (GET)
-   - Verifica se o token é válido
-   - Header: `Authorization: Bearer seu_token_jwt`
-   - Resposta:
-     ```json
-     {
-       "valid": true,
-       "user": {
-         "id": "1",
-         "username": "usuario",
-         "roles": ["admin", "user"]
-       }
-     }
-     ```
-
-3. **Renovar Token** - `/api/auth/refresh` (POST)
-   - Renova o token de acesso usando um refresh token
-   - Payload:
-     ```json
-     {
-       "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-     }
-     ```
-   - Resposta:
-     ```json
-     {
-       "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-       "token_type": "bearer"
-     }
-     ```
-
-### Uso em Endpoints Protegidos
-
-Para acessar endpoints protegidos, inclua o token no cabeçalho:
-
-```
-Authorization: Bearer seu_token_jwt
-```
-
-Exemplo com curl:
-```bash
-curl -X GET http://localhost:5000/api/health \
-  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-```
-
-Exemplo com JavaScript:
-```javascript
-fetch('http://localhost:5000/api/emails/send', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    // payload
-  })
-})
-.then(response => response.json())
-.then(data => console.log(data));
-```
-
-### Fluxo de Autenticação Recomendado
-
-1. **Obter Token**:
-   - Faça login com usuário e senha em `/api/auth/login`
-   - Armazene o `access_token` e o `refresh_token` recebidos
-
-2. **Usar o Token**:
-   - Inclua o `access_token` no cabeçalho `Authorization: Bearer` em todas as requisições
-
-3. **Lidar com Token Expirado**:
-   - Se receber erro 401, use o `refresh_token` para obter um novo `access_token` em `/api/auth/refresh`
-   - Se o `refresh_token` também estiver expirado, solicite ao usuário que faça login novamente
-
-4. **Verificar Token (Opcional)**:
-   - Para verificar se um token ainda é válido, faça uma requisição para `/api/auth/verify`
+| `/api/config/partial` | PATCH | role_required('admin') | Atualizar configurações parcialmente |

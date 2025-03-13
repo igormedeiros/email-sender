@@ -1,20 +1,24 @@
 import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from typing import List, Dict, Any
-from pathlib import Path
-import re
-import time
-import logging
-from contextlib import contextmanager
-import signal
-import os
 import csv
+import os
+import logging
 import pandas as pd
+import time
+import ssl
+import socket
+import re
+import shutil
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple, Union, Any
+from contextlib import contextmanager
 from datetime import datetime
+import signal
 
-from .config import Config
-from .utils.csv_reader import CSVReader
+from src.config import Config
+from src.utils.csv_reader import CSVReader
 
 log = logging.getLogger("email_sender")
 
@@ -172,11 +176,28 @@ class EmailService:
     def load_unsubscribed_emails(self, unsubscribe_file: str = "data/descadastros.csv") -> List[str]:
         """Carrega a lista de emails descadastrados do arquivo CSV"""
         try:
-            df = pd.read_csv(unsubscribe_file)
-            return df['email'].str.lower().tolist()
-        except FileNotFoundError:
-            log.warning(f"Arquivo de descadastros {unsubscribe_file} não encontrado.")
-            return []
+            if not os.path.exists(unsubscribe_file):
+                log.warning(f"Arquivo de descadastros {unsubscribe_file} não encontrado.")
+                return []
+                
+            try:
+                # Primeiro tenta ler como CSV com cabeçalho
+                df = pd.read_csv(unsubscribe_file)
+                if 'email' in df.columns:
+                    return df['email'].str.lower().tolist()
+                else:
+                    # Se não tiver coluna 'email', assume que a primeira coluna contém emails
+                    return df.iloc[:, 0].str.lower().tolist()
+            except Exception as e:
+                # Se falhar na leitura CSV, tenta ler como texto linha por linha
+                log.warning(f"Erro ao ler CSV de descadastros, tentando como texto: {str(e)}")
+                with open(unsubscribe_file, 'r', encoding='utf-8') as file:
+                    emails = []
+                    for line in file:
+                        email = line.strip().split(',')[0]  # Pega apenas a primeira parte antes da vírgula
+                        if email and email.lower() != 'email':  # Ignora cabeçalho e linhas vazias
+                            emails.append(email.lower())
+                    return emails
         except Exception as e:
             log.warning(f"Erro ao carregar emails descadastrados: {str(e)}.")
             return []
@@ -224,7 +245,7 @@ class EmailService:
             Número de emails marcados como descadastrados
         """
         try:
-            log.info(f"Sincronizando lista de emails descadastrados de {unsubscribe_file} com {csv_path}...")
+            log.info(f"Sincronizando lista de descadastros {unsubscribe_file} com {csv_path}...")
             
             # Verificar se os arquivos existem
             if not Path(csv_path).exists():
@@ -241,12 +262,12 @@ class EmailService:
             # Lê lista de descadastros de forma eficiente 
             try:
                 # Tenta primeiro ler como CSV com cabeçalho
-                df_unsubscribed = pd.read_csv(unsubscribe_file, low_memory=False)
+                df_unsubscribed = pd.read_csv(unsubscribe_file, sep=None, engine='python', low_memory=False)
                 if 'email' in df_unsubscribed.columns:
-                    unsubscribed = set(df_unsubscribed['email'].str.lower().dropna())
+                    unsubscribed = set(df_unsubscribed['email'].astype(str).str.lower().dropna())
                 else:
                     # Se não tiver coluna 'email', tenta ler a primeira coluna
-                    unsubscribed = set(df_unsubscribed.iloc[:, 0].str.lower().dropna())
+                    unsubscribed = set(df_unsubscribed.iloc[:, 0].astype(str).str.lower().dropna())
             except Exception as e:
                 # Se falhar, tenta ler linha por linha como texto
                 log.warning(f"Tentando ler arquivo como texto simples: {str(e)}")
@@ -263,23 +284,37 @@ class EmailService:
             log.info(f"Encontrados {len(unsubscribed)} emails descadastrados.")
             
             # Atualiza o arquivo principal - carregando por chunks para maior eficiência com arquivos grandes
-            df = pd.read_csv(csv_path)
-            
-            # Determinar quais emails existem no CSV principal
-            existing_emails = set(df['email'].str.lower())
-            
-            # Marcar emails como descadastrados
-            df['descadastro'] = df['email'].str.lower().isin(unsubscribed).map({True: 'S', False: ''})
-            
-            # Calcular estatísticas
-            total_blacklisted = len(df[df['descadastro'] == 'S'])
-            update_count = total_blacklisted
-            
-            # Salvar o arquivo atualizado
-            df.to_csv(csv_path, index=False)
-            
-            return update_count
-            
+            try:
+                df = pd.read_csv(csv_path, sep=None, engine='python')
+                
+                # Verificar se a coluna 'email' existe
+                if 'email' not in df.columns:
+                    log.error(f"Coluna 'email' não encontrada no arquivo {csv_path}")
+                    return 0
+                
+                # Garantir que a coluna 'descadastro' existe
+                if 'descadastro' not in df.columns:
+                    df['descadastro'] = ''
+                
+                # Determinar quais emails existem no CSV principal
+                existing_emails = set(df['email'].astype(str).str.lower())
+                
+                # Marcar emails como descadastrados
+                df['descadastro'] = df['email'].astype(str).str.lower().isin(unsubscribed).map({True: 'S', False: ''})
+                
+                # Calcular estatísticas
+                total_blacklisted = len(df[df['descadastro'] == 'S'])
+                update_count = total_blacklisted
+                
+                # Salvar o arquivo atualizado
+                df.to_csv(csv_path, index=False)
+                
+                log.info(f"✅ Sincronização concluída! {update_count} emails atualizados.")
+                return update_count
+            except Exception as e:
+                log.error(f"Erro ao processar arquivo CSV principal: {str(e)}")
+                raise
+                
         except Exception as e:
             log.error(f"Erro ao sincronizar emails descadastrados: {str(e)}")
             raise
@@ -313,6 +348,38 @@ class EmailService:
             log.error(f"Erro ao enviar email de teste: {str(e)}")
             raise
 
+    def create_backup(self, file_path: str) -> str:
+        """
+        Cria um backup do arquivo CSV.
+        
+        Args:
+            file_path: Caminho para o arquivo CSV a ser copiado
+            
+        Returns:
+            Caminho para o arquivo de backup criado
+        """
+        try:
+            # Verificar se o arquivo existe
+            if not Path(file_path).exists():
+                raise FileNotFoundError(f"Arquivo para backup não encontrado: {file_path}")
+                
+            # Criar diretório de backup se não existir
+            backup_dir = Path("backup")
+            backup_dir.mkdir(exist_ok=True)
+            
+            # Gerar nome do arquivo de backup
+            file_name = Path(file_path).name
+            backup_path = backup_dir / f"{file_name}.bak"
+            
+            # Copiar o arquivo
+            shutil.copy2(file_path, backup_path)
+            
+            log.info(f"Backup criado: {backup_path}")
+            return str(backup_path)
+        except Exception as e:
+            log.error(f"Erro ao criar backup: {str(e)}")
+            raise
+
     def clear_sent_flags(self, csv_file: str) -> int:
         """
         Limpa as flags 'enviado' e 'falhou' no arquivo CSV para permitir o reenvio de emails.
@@ -326,6 +393,10 @@ class EmailService:
         try:
             if not Path(csv_file).exists():
                 raise FileNotFoundError(f"Arquivo CSV não encontrado: {csv_file}")
+            
+            # Criar backup do arquivo antes de modificá-lo
+            backup_path = self.create_backup(csv_file)
+            log.info(f"Backup do arquivo criado em: {backup_path}")
                 
             # Carrega o arquivo CSV
             df = pd.read_csv(csv_file)
@@ -436,13 +507,18 @@ class EmailService:
         duration = end_time - start_time
         avg_time = duration/total_sent if total_sent > 0 else 0
         
+        # Calcular horas e minutos
+        horas = int(duration // 3600)
+        minutos = int((duration % 3600) // 60)
+        segundos = int(duration % 60)
+        
         report = f"""Relatório de Envio de Emails
 Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
 -----------------------------------------
 Total de emails tentados: {total_sent}
 Enviados com sucesso: {successful}
 Falhas: {failed}
-Tempo total: {duration:.2f} segundos
+Tempo total: {duration:.2f} segundos ({horas}h {minutos}min {segundos}s)
 Tempo médio por email: {avg_time:.2f} segundos
 """
         # Ensure reports directory exists
@@ -463,8 +539,95 @@ Tempo médio por email: {avg_time:.2f} segundos
             "avg_time": avg_time,
             "total_sent": total_sent,
             "successful": successful,
-            "failed": failed
+            "failed": failed,
+            "duracao_formatada": f"{horas}h {minutos}min {segundos}s"
         }
+
+    def remove_duplicates(self, csv_file: str, column: str = "email", keep: str = "first", output_file: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Remove linhas duplicadas de um arquivo CSV baseado em uma coluna específica.
+        
+        Args:
+            csv_file: Caminho para o arquivo CSV a ser processado
+            column: Coluna a ser usada para identificar duplicados (padrão: 'email')
+            keep: Qual ocorrência manter ('first' ou 'last', padrão: 'first')
+            output_file: Arquivo de saída. Se não especificado, substitui o original
+            
+        Returns:
+            Dicionário com resultados do processamento
+        """
+        try:
+            log.info(f"Removendo duplicados do arquivo {csv_file} baseado na coluna '{column}'...")
+            
+            # Verificar se o arquivo existe
+            if not Path(csv_file).exists():
+                raise FileNotFoundError(f"Arquivo {csv_file} não encontrado")
+            
+            # Carregar o arquivo CSV
+            try:
+                # Tentar determinar automaticamente o delimitador
+                df = pd.read_csv(csv_file, sep=None, engine='python')
+            except Exception as e:
+                raise ValueError(f"Erro ao ler o arquivo CSV: {str(e)}")
+            
+            # Verificar se a coluna existe
+            if column not in df.columns:
+                raise ValueError(f"Coluna '{column}' não encontrada no arquivo CSV")
+            
+            # Contar registros antes da remoção
+            total_antes = len(df)
+            
+            # Remover duplicados
+            df_without_duplicates = df.drop_duplicates(subset=[column], keep=keep)
+            
+            # Contar registros após a remoção
+            total_depois = len(df_without_duplicates)
+            duplicados_removidos = total_antes - total_depois
+            
+            # Determinar o arquivo de saída
+            if not output_file:
+                # Se não foi especificado, faz backup do original e substitui
+                backup_dir = Path("backup")
+                backup_dir.mkdir(exist_ok=True)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_file = backup_dir / f"{Path(csv_file).stem}_{timestamp}.csv"
+                
+                # Criar backup
+                shutil.copy2(csv_file, backup_file)
+                log.info(f"Backup criado em: {backup_file}")
+                
+                # Salvar no arquivo original
+                output_path = csv_file
+            else:
+                # Usar o arquivo de saída especificado
+                output_path = output_file
+                backup_file = None
+            
+            # Salvar o arquivo sem duplicados
+            df_without_duplicates.to_csv(output_path, index=False)
+            
+            # Preparar resultado
+            result = {
+                "status": "success",
+                "total_antes": total_antes,
+                "total_depois": total_depois,
+                "duplicados_removidos": duplicados_removidos,
+                "output_file": str(output_path),
+                "backup_file": str(backup_file) if backup_file else None
+            }
+            
+            # Log do resultado
+            if duplicados_removidos > 0:
+                log.info(f"{duplicados_removidos} duplicados removidos com sucesso!")
+            else:
+                log.info(f"Nenhum duplicado encontrado para a coluna '{column}'.")
+                
+            return result
+                
+        except Exception as e:
+            log.error(f"Erro ao remover duplicados: {str(e)}")
+            raise
 
     def process_email_sending(self, csv_file: str = None, template: str = "", skip_unsubscribed_sync: bool = False, is_test_mode: bool = True) -> Dict[str, Any]:
         """

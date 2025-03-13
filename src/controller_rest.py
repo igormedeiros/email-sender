@@ -31,6 +31,48 @@ def health_check():
     """Endpoint para verificar se o serviço está rodando"""
     return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
 
+@app.route("/api/csv/remove-duplicates", methods=["POST"])
+def remove_duplicates():
+    """Endpoint para remover linhas duplicadas de um arquivo CSV baseado em uma coluna específica"""
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({"error": "Dados JSON não fornecidos"}), 400
+            
+        # Parâmetros obrigatórios
+        csv_file = data.get("csv_file")
+        if not csv_file:
+            return jsonify({"error": "Parâmetro 'csv_file' é obrigatório"}), 400
+            
+        # Parâmetros opcionais com valores padrão
+        column = data.get("column", "email")
+        keep = data.get("keep", "first")  # 'first' ou 'last'
+        output_file = data.get("output_file")  # Se None, substitui o original
+        
+        # Obter a instância do serviço de emails
+        email_service = get_email_service()
+        
+        # Usar o método da classe EmailService
+        try:
+            result = email_service.remove_duplicates(
+                csv_file=csv_file,
+                column=column,
+                keep=keep,
+                output_file=output_file
+            )
+            
+            # Retornar resultado
+            return jsonify(result), 200
+            
+        except FileNotFoundError as e:
+            return jsonify({"error": str(e)}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        
+    except Exception as e:
+        return jsonify({"error": f"Erro ao remover duplicados: {str(e)}"}), 500
+
 @app.route("/api/emails/send", methods=["POST"])
 def send_emails():
     """Endpoint para enviar emails em lote"""

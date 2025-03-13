@@ -24,6 +24,7 @@ class SendEmailRequest:
     mode: SendMode
     csv_file: Optional[str] = None
     skip_unsubscribed_sync: bool = False
+    titulo: Optional[str] = None
     
 @dataclass
 class ReportData:
