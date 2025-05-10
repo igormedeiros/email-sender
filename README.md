@@ -3,6 +3,7 @@
 Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup automático e relatórios detalhados. Todas as configurações são mantidas em arquivos YAML externos, sem valores hardcoded no código.
 
 ## 📋 Índice
+
 - [Recursos](#recursos)
 - [Requisitos](#requisitos)
 - [Instalação](#instalação)
@@ -26,6 +27,7 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 - 🛡️ Tratamento seguro de interrupções
 - 📝 Suporte a templates de email personalizáveis
 - 🚫 Gerenciamento automático de descadastros (unsubscribe)
+- 🚫 Gerenciamento de emails com bounce
 - 🔧 Configuração 100% externa via arquivos YAML (sem valores hardcoded)
 - 🌐 API REST para todas as funcionalidades
 - 🔌 Arquitetura desacoplada com controllers e service
@@ -39,12 +41,14 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 ## ⚙️ Instalação
 
 1. Clone o repositório:
+
 ```bash
 git clone <repository-url>
 cd email-sender
 ```
 
 2. Crie e ative um ambiente virtual:
+
 ```bash
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
@@ -52,6 +56,7 @@ venv\Scripts\activate   # Windows
 ```
 
 3. Instale as dependências:
+
 ```bash
 pip install -e .
 ```
@@ -77,33 +82,34 @@ nano .env  # Coloque suas credenciais SMTP
 
 2. Configure as opções no arquivo `config/config.yaml`:
 
-| Seção | Chave | Descrição | Exemplo |
-|-------|-------|-----------|---------|
-| smtp | host | Servidor SMTP | smtp.gmail.com |
-| smtp | port | Porta SMTP | 587 |
-| smtp | use_tls | Usar TLS | true |
-| smtp | retry_attempts | Número de tentativas | 3 |
-| smtp | retry_delay | Delay entre tentativas (segundos) | 5 |
-| smtp | send_timeout | Timeout de envio (segundos) | 10 |
+| Seção | Chave          | Descrição                         | Exemplo        |
+| ----- | -------------- | --------------------------------- | -------------- |
+| smtp  | host           | Servidor SMTP                     | smtp.gmail.com |
+| smtp  | port           | Porta SMTP                        | 587            |
+| smtp  | use_tls        | Usar TLS                          | true           |
+| smtp  | retry_attempts | Número de tentativas              | 3              |
+| smtp  | retry_delay    | Delay entre tentativas (segundos) | 5              |
+| smtp  | send_timeout   | Timeout de envio (segundos)       | 10             |
 
 3. Configure as credenciais SMTP no arquivo `.env`:
 
-| Variável | Descrição | Exemplo |
-|----------|-----------|---------|
+| Variável      | Descrição    | Exemplo       |
+| ------------- | ------------ | ------------- |
 | SMTP_USERNAME | Usuário SMTP | seu@email.com |
-| SMTP_PASSWORD | Senha SMTP | sua_senha |
+| SMTP_PASSWORD | Senha SMTP   | sua_senha     |
 
 4. Outras configurações disponíveis no arquivo `config/config.yaml`:
 
-| Seção | Chave | Descrição | Exemplo |
-|-------|-------|-----------|---------|
-| email | sender | Nome e email do remetente | Seu Nome \<seu@email.com\> |
-| email | batch_size | Tamanho do lote | 100 |
-| email | csv_file | Arquivo de emails | data/emails_geral.csv |
-| email | test_recipient | Email para teste | test@example.com |
-| email | batch_delay | Delay entre lotes (segundos) | 60 |
-| email | unsubscribe_file | Arquivo de descadastros | data/descadastros.csv |
-| email | test_emails_file | Arquivo para testes em lote | data/test_emails.csv |
+| Seção | Chave            | Descrição                    | Exemplo                    |
+| ----- | ---------------- | ---------------------------- | -------------------------- |
+| email | sender           | Nome e email do remetente    | Seu Nome \<seu@email.com\> |
+| email | batch_size       | Tamanho do lote              | 100                        |
+| email | csv_file         | Arquivo de emails            | data/emails_geral.csv      |
+| email | test_recipient   | Email para teste             | test@example.com           |
+| email | batch_delay      | Delay entre lotes (segundos) | 60                         |
+| email | unsubscribe_file | Arquivo de descadastros      | data/descadastros.csv      |
+| email | test_emails_file | Arquivo para testes em lote  | data/test_emails.csv       |
+| email | bounces_file     | Arquivo de emails com bounce | data/bounces.csv           |
 
 5. Conteúdo dinâmico para os templates em `config/email.yaml`:
 
@@ -130,44 +136,44 @@ promocao:
 # Configurações de email
 # ---------------------
 email:
-  subject: "Aprenda Proteção e Seletividade"  # Assunto padrão para os emails
+  subject: "Aprenda Proteção e Seletividade" # Assunto padrão para os emails
 
 # URLs de gerenciamento de inscrição
 # ---------------------------------
 urls:
-  unsubscribe: "https://seu-site.com/unsubscribe"  # URL para descadastro
-  subscribe: "https://seu-site.com/resubscribe"    # URL para recadastro
+  unsubscribe: "https://seu-site.com/unsubscribe" # URL para descadastro
+  subscribe: "https://seu-site.com/resubscribe" # URL para recadastro
 ```
 
 6. Crie os arquivos CSV necessários na pasta `data/` seguindo as estruturas descritas em `example_emails.csv.md`:
 
 ```bash
 mkdir -p data
-touch data/emails_geral.csv data/test_emails.csv data/descadastros.csv
+touch data/emails_geral.csv data/test_emails.csv data/descadastros.csv data/bounces.csv
 ```
 
 5. Configuração da API REST em `config/rest.yaml`:
 
-| Seção | Chave | Descrição | Padrão |
-|-------|-------|-----------|--------|
-| server | host | Host para o servidor | 0.0.0.0 |
-| server | port | Porta HTTP | 5000 |
-| server | debug | Modo debug | true |
-| security | enable_cors | Habilitar CORS | true |
-| security | allowed_origins | Origens permitidas | * |
-| security | rate_limiting.enabled | Habilitar rate limiting | true |
-| security | rate_limiting.requests_per_minute | Requisições por minuto | 60 |
-| logging | level | Nível de log | INFO |
-| logging | file | Arquivo de log | (vazio) |
-| timeout | request | Timeout (segundos) | 60 |
-| endpoints | [categoria].enabled | Habilitar categoria | true |
-| endpoints | [categoria].base_path | Caminho base para categoria | /api/... |
-| endpoints | [categoria].operations.[operação].enabled | Habilitar operação | true |
-| endpoints | [categoria].operations.[operação].path | Caminho da operação | /... |
-| endpoints | [categoria].operations.[operação].methods | Métodos HTTP permitidos | [GET/POST/etc] |
-| documentation | enabled | Habilitar documentação | true |
-| documentation | path | Caminho da documentação | /api/docs |
-| documentation | openapi_file | Arquivo OpenAPI | config/api-docs.yaml |
+| Seção         | Chave                                     | Descrição                   | Padrão               |
+| ------------- | ----------------------------------------- | --------------------------- | -------------------- |
+| server        | host                                      | Host para o servidor        | 0.0.0.0              |
+| server        | port                                      | Porta HTTP                  | 5000                 |
+| server        | debug                                     | Modo debug                  | true                 |
+| security      | enable_cors                               | Habilitar CORS              | true                 |
+| security      | allowed_origins                           | Origens permitidas          | \*                   |
+| security      | rate_limiting.enabled                     | Habilitar rate limiting     | true                 |
+| security      | rate_limiting.requests_per_minute         | Requisições por minuto      | 60                   |
+| logging       | level                                     | Nível de log                | INFO                 |
+| logging       | file                                      | Arquivo de log              | (vazio)              |
+| timeout       | request                                   | Timeout (segundos)          | 60                   |
+| endpoints     | [categoria].enabled                       | Habilitar categoria         | true                 |
+| endpoints     | [categoria].base_path                     | Caminho base para categoria | /api/...             |
+| endpoints     | [categoria].operations.[operação].enabled | Habilitar operação          | true                 |
+| endpoints     | [categoria].operations.[operação].path    | Caminho da operação         | /...                 |
+| endpoints     | [categoria].operations.[operação].methods | Métodos HTTP permitidos     | [GET/POST/etc]       |
+| documentation | enabled                                   | Habilitar documentação      | true                 |
+| documentation | path                                      | Caminho da documentação     | /api/docs            |
+| documentation | openapi_file                              | Arquivo OpenAPI             | config/api-docs.yaml |
 
 6. Documentação da API em `config/api-docs.yaml`:
 
@@ -198,10 +204,12 @@ python -m src.cli test-smtp [--config config/config.yaml] [--content config/emai
 ```
 
 Parâmetros opcionais:
+
 - `--config, -c`: Caminho para o arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Caminho para o arquivo de conteúdo de email (padrão: config/email.yaml)
 
 Resposta esperada:
+
 ```
 📧 test@example.com
 ✅ test@example.com
@@ -221,27 +229,34 @@ python -m src.cli send-emails templates/email.html --mode=production
 # Especificando arquivo CSV personalizado
 python -m src.cli send-emails templates/email.html --mode=production --csv-file data/minha_lista.csv
 
-# Ignorando sincronização de descadastros
+# Ignorando sincronização de descadastros e bounces
 python -m src.cli send-emails templates/email.html --mode=production --skip-sync
+
+# Especificando arquivo de bounces personalizado
+python -m src.cli send-emails templates/email.html --mode=production --bounces-file data/meus_bounces.csv
 ```
 
-Este comando sincroniza automaticamente a lista de descadastros antes de iniciar o envio, garantindo que emails descadastrados não recebam mensagens.
+Este comando sincroniza automaticamente a lista de descadastros e bounces (a menos que `--skip-sync` seja usado) antes de iniciar o envio, garantindo que emails descadastrados ou com bounce não recebam mensagens.
 
 > **⚠️ Segurança:** É obrigatório especificar o modo de envio:
+>
 > - `--mode=test`: Usa o arquivo `data/test_emails.csv` para testes seguros (definido em config/config.yaml)
 > - `--mode=production`: Usa a lista completa `emails_geral.csv` para envios reais (definido em config/config.yaml)
 >
 > Não é possível executar o comando sem especificar um destes modos, evitando envios acidentais.
 
 Parâmetros:
+
 - `template`: Nome ou caminho do template HTML a ser usado (obrigatório)
 - `--csv-file`: Caminho do arquivo CSV (opcional, usa configuração se omitido)
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
-- `--skip-sync`: Ignora a sincronização da lista de descadastros antes do envio
+- `--skip-sync`: Ignora a sincronização da lista de descadastros e bounces antes do envio
 - `--mode`: **Obrigatório**: especifique o modo de envio (`test` ou `production`)
+- `--bounces-file`: Caminho para o arquivo CSV de bounces (padrão: `data/bounces.csv`)
 
 Durante a execução, o progresso é exibido em tempo real:
+
 ```
 📧 usuario1@example.com
 ✅ usuario1@example.com
@@ -274,12 +289,30 @@ python -m src.cli sync-unsubscribed-command [--csv-file data/emails_geral.csv] [
 Este comando atualiza a coluna `descadastro` no arquivo principal com base na lista de emails descadastrados. É executado automaticamente antes de cada envio, mas pode ser executado manualmente quando necessário. Ele marcará com "S" os emails que constam na lista de descadastros.
 
 Parâmetros opcionais:
+
 - `--csv-file`: Caminho para o arquivo CSV principal (usa o da configuração se omitido)
 - `--unsubscribe-file`: Caminho para o arquivo de descadastros (usa o da configuração se omitido)
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
 
 Além disso, se existirem emails na lista de descadastros que não estão presentes na lista principal de emails, o comando adicionará esses emails à lista principal com a flag `descadastro` já marcada como "S". Isso garante que todos os emails descadastrados estejam sempre registrados na lista principal.
+
+#### Sincronizar Lista de Bounces
+
+Sincroniza manualmente a lista de emails de bounce com o arquivo principal de emails:
+
+```bash
+python -m src.cli sync-bounces-command [--csv-file data/emails_geral.csv] [--bounces-file data/bounces.csv]
+```
+
+Este comando atualiza a coluna `bounce` no arquivo principal com base na lista de emails de bounce. Ele marcará com "S" os emails que constam na lista de bounces. É executado automaticamente antes de cada envio de produção (a menos que `--skip-sync` seja usado), mas pode ser executado manualmente.
+
+Parâmetros opcionais:
+
+- `--csv-file`: Caminho para o arquivo CSV principal (usa o da configuração se omitido)
+- `--bounces-file`: Caminho para o arquivo de bounces (padrão: `data/bounces.csv`)
+- `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
+- `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
 
 #### Limpar Flags de Envio
 
@@ -290,6 +323,7 @@ python -m src.cli clear-sent-flags [--csv-file data/emails_geral.csv]
 ```
 
 Parâmetros opcionais:
+
 - `--csv-file`: Caminho para o arquivo CSV (usa o da configuração se omitido)
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
@@ -317,6 +351,7 @@ python -m src.cli remove-duplicates data/emails_geral.csv --output data/emails_s
 Este comando analisa o arquivo CSV, identifica duplicatas com base na coluna especificada, e mantém apenas uma ocorrência de cada valor único. Antes de modificar o arquivo original, o sistema cria automaticamente um backup de segurança.
 
 Parâmetros:
+
 - `csv_file`: Caminho para o arquivo CSV a ser processado (obrigatório)
 - `--column, -c`: Coluna a ser usada para identificar duplicados (padrão: "email")
 - `--keep, -k`: Qual ocorrência manter ("first" ou "last", padrão: "first")
@@ -336,6 +371,7 @@ python -m src.rest_api
 A API será iniciada conforme as configurações definidas em `config/rest.yaml`. Por padrão, estará disponível em `http://localhost:5000`.
 
 Saída esperada:
+
 ```
 ⚡ Iniciando API REST em http://0.0.0.0:5000
 📝 Documentação disponível em http://0.0.0.0:5000/api/docs
@@ -361,6 +397,7 @@ Veja a [seção de configuração](#configuração) para detalhes sobre as opç�
 A API é completamente configurável através de definições em arquivos YAML:
 
 1. **Configuração de Servidor e Segurança**: `config/rest.yaml`
+
    - Configurações técnicas: host, porta, timeouts, CORS, rate limiting
    - Habilitação/desabilitação de endpoints
    - Definição de caminhos (paths) para os endpoints
@@ -371,6 +408,7 @@ A API é completamente configurável através de definições em arquivos YAML:
    - Documentação de respostas e códigos de erro
 
 Esta estrutura permite:
+
 - Modificar endpoints sem alterar código
 - Habilitar/desabilitar recursos específicos
 - Ajustar parâmetros de segurança
@@ -388,17 +426,18 @@ Esta interface permite explorar todos os endpoints disponíveis, seus parâmetro
 
 #### Principais Endpoints
 
-| Endpoint | Método | Descrição |
-|----------|--------|-----------|
-| `/api/health` | GET | Verificar status do serviço |
-| `/api/emails/send` | POST | Enviar emails em lote |
-| `/api/emails/test-smtp` | POST | Testar conexão SMTP |
-| `/api/emails/clear-flags` | POST | Limpar flags de envio |
-| `/api/emails/sync-unsubscribed` | POST | Sincronizar lista de descadastros |
-| `/api/csv/remove-duplicates` | POST | Remover linhas duplicadas de um CSV |
-| `/api/config` | GET | Obter configurações atuais |
-| `/api/config` | PUT | Atualizar configurações |
-| `/api/config/partial` | PATCH | Atualizar configurações parcialmente |
+| Endpoint                        | Método | Descrição                            |
+| ------------------------------- | ------ | ------------------------------------ |
+| `/api/health`                   | GET    | Verificar status do serviço          |
+| `/api/emails/send`              | POST   | Enviar emails em lote                |
+| `/api/emails/test-smtp`         | POST   | Testar conexão SMTP                  |
+| `/api/emails/clear-flags`       | POST   | Limpar flags de envio                |
+| `/api/emails/sync-unsubscribed` | POST   | Sincronizar lista de descadastros    |
+| `/api/emails/sync-bounces`      | POST   | Sincronizar lista de bounces         |
+| `/api/csv/remove-duplicates`    | POST   | Remover linhas duplicadas de um CSV  |
+| `/api/config`                   | GET    | Obter configurações atuais           |
+| `/api/config`                   | PUT    | Atualizar configurações              |
+| `/api/config/partial`           | PATCH  | Atualizar configurações parcialmente |
 
 Consulte a documentação OpenAPI completa em `/api/docs` para detalhes sobre parâmetros, respostas e exemplos de cada endpoint.
 
@@ -410,33 +449,43 @@ Os arquivos de dados devem ser criados manualmente na pasta `data/` seguindo as 
 
 Arquivo principal de emails:
 
-| Coluna | Descrição | Valores |
-|--------|-----------|---------|
-| email | Endereço de email (obrigatório) | email@domain.com |
-| enviado | Status de envio | "" (não enviado), "ok" (enviado) |
-| falhou | Status de falha | "" (sem falha), "ok" (falhou) |
-| descadastro | Flag de descadastramento | "" (enviar), "S" (não enviar) |
-| [outros] | Campos adicionais para template | Qualquer valor |
+| Coluna      | Descrição                       | Valores                          |
+| ----------- | ------------------------------- | -------------------------------- |
+| email       | Endereço de email (obrigatório) | email@domain.com                 |
+| enviado     | Status de envio                 | "" (não enviado), "ok" (enviado) |
+| falhou      | Status de falha                 | "" (sem falha), "ok" (falhou)    |
+| descadastro | Flag de descadastramento        | "" (enviar), "S" (não enviar)    |
+| bounce      | Flag de bounce                  | "" (enviar), "S" (não enviar)    |
+| [outros]    | Campos adicionais para template | Qualquer valor                   |
 
 ### Arquivo `test_emails.csv`
 
 Arquivo para testes de envio em lote:
 
-| Coluna | Descrição | Valores |
-|--------|-----------|---------|
-| email | Endereço de email (obrigatório) | email@domain.com |
-| enviado | Status de envio | "" (não enviado), "ok" (enviado) |
-| falhou | Status de falha | "" (sem falha), "ok" (falhou) |
-| descadastro | Flag de descadastramento | "" (enviar), "S" (não enviar) |
-| [outros] | Campos adicionais para template | Qualquer valor |
+| Coluna      | Descrição                       | Valores                          |
+| ----------- | ------------------------------- | -------------------------------- |
+| email       | Endereço de email (obrigatório) | email@domain.com                 |
+| enviado     | Status de envio                 | "" (não enviado), "ok" (enviado) |
+| falhou      | Status de falha                 | "" (sem falha), "ok" (falhou)    |
+| descadastro | Flag de descadastramento        | "" (enviar), "S" (não enviar)    |
+| bounce      | Flag de bounce                  | "" (enviar), "S" (não enviar)    |
+| [outros]    | Campos adicionais para template | Qualquer valor                   |
 
 ### Arquivo `descadastros.csv`
 
 Lista de emails descadastrados:
 
-| Coluna | Descrição | Valores |
-|--------|-----------|---------|
-| email | Endereço de email (obrigatório) | email@domain.com |
+| Coluna | Descrição                       | Valores          |
+| ------ | ------------------------------- | ---------------- |
+| email  | Endereço de email (obrigatório) | email@domain.com |
+
+### Arquivo `bounces.csv`
+
+Lista de emails com bounce:
+
+| Coluna | Descrição                       | Valores          |
+| ------ | ------------------------------- | ---------------- |
+| email  | Endereço de email (obrigatório) | email@domain.com |
 
 > 📝 **Nota:** Para mais detalhes sobre a estrutura dos arquivos CSV, consulte o arquivo `example_emails.csv.md`.
 
@@ -459,26 +508,26 @@ Exemplo de nome do arquivo: `email_report_20250212_172008.txt`
 Para garantir a segurança das informações, os seguintes tipos de arquivos são excluídos do versionamento Git:
 
 - **Credenciais**: arquivos `.env`, senhas e credenciais
-- **Dados**: arquivos CSV, Excel e outros dados na pasta `data/` 
+- **Dados**: arquivos CSV, Excel e outros dados na pasta `data/`
 - **Configurações**: arquivos YAML na pasta `config/`
 - **Templates de Email**: arquivos HTML na pasta `templates/`
 - **Logs e Relatórios**: arquivos na pasta `reports/`
 
-> 🚫 **NUNCA VERSIONE ARQUIVOS CSV COM DADOS REAIS!** 
-> 
+> 🚫 **NUNCA VERSIONE ARQUIVOS CSV COM DADOS REAIS!**
+>
 > Todos os arquivos CSV estão configurados no `.gitignore` para serem ignorados pelo Git. Não remova estas exclusões nem tente forçar o versionamento destes arquivos.
 
 ### 📝 Arquivos de Exemplo
 
 Para facilitar a configuração, o projeto inclui os seguintes arquivos de exemplo que são versionados:
 
-| Arquivo Original | Arquivo de Exemplo | Descrição |
-|------------------|-------------------|-----------|
-| `config/config.yaml` | `example_config.yaml` | Configurações do sistema |
-| `config/email.yaml` | `example_email.yaml` | Conteúdo dinâmico de emails |
-| `templates/email.html` | `templates/email.html.example` | Template de email |
-| `.env` | `.env.example` | Credenciais SMTP |
-| Arquivos CSV na pasta `data/` | `example_emails.csv.md` | Descrição da estrutura dos arquivos CSV |
+| Arquivo Original              | Arquivo de Exemplo             | Descrição                               |
+| ----------------------------- | ------------------------------ | --------------------------------------- |
+| `config/config.yaml`          | `example_config.yaml`          | Configurações do sistema                |
+| `config/email.yaml`           | `example_email.yaml`           | Conteúdo dinâmico de emails             |
+| `templates/email.html`        | `templates/email.html.example` | Template de email                       |
+| `.env`                        | `.env.example`                 | Credenciais SMTP                        |
+| Arquivos CSV na pasta `data/` | `example_emails.csv.md`        | Descrição da estrutura dos arquivos CSV |
 
 ## 🔧 Desenvolvimento
 
@@ -486,7 +535,8 @@ Para facilitar a configuração, o projeto inclui os seguintes arquivos de exemp
 
 1. **Configuração Externa**: Todas as configurações, URLs, credenciais e parâmetros operacionais devem ser definidos em arquivos YAML externos. Nunca hardcode valores no código.
 
-2. **Separação de Responsabilidades**: 
+2. **Separação de Responsabilidades**:
+
    - `config/config.yaml`: Configurações técnicas e operacionais
    - `config/email.yaml`: Conteúdo dinâmico e texto para templates
    - `.env`: Apenas credenciais sensíveis
@@ -505,7 +555,8 @@ email-sender/
 ├── data/                # Arquivos de dados (não versionados)
 │   ├── emails_geral.csv         # Lista principal de emails
 │   ├── test_emails.csv          # Emails para teste em lote
-│   └── descadastros.csv         # Lista de emails descadastrados
+│   ├── descadastros.csv         # Lista de emails descadastrados
+│   └── bounces.csv              # Lista de emails com bounce
 ├── templates/           # Templates de email
 │   └── email.html       # Template padrão de email HTML
 ├── logs/                # Logs da aplicação (não versionados)
@@ -543,11 +594,13 @@ email-sender/
 ### Executando Testes
 
 Execute todos os testes:
+
 ```bash
 pytest
 ```
 
 Execute testes com cobertura:
+
 ```bash
 pytest --cov=src
 ```
@@ -575,9 +628,9 @@ No arquivo `config/rest.yaml`:
 security:
   jwt:
     enabled: true
-    secret_key: "${JWT_SECRET_KEY}"  # Use variável de ambiente para o segredo
+    secret_key: "${JWT_SECRET_KEY}" # Use variável de ambiente para o segredo
     token_expiry_hours: 24
-    refresh_token_expiry_hours: 168  # 7 dias
+    refresh_token_expiry_hours: 168 # 7 dias
 ```
 
 Certifique-se de definir a variável de ambiente JWT_SECRET_KEY com um valor forte e seguro:
@@ -604,13 +657,14 @@ O sistema utiliza diferentes tipos de proteção para os endpoints:
 
 Os seguintes endpoints estão protegidos:
 
-| Endpoint | Método | Proteção | Função |
-|----------|--------|----------|--------|
-| `/api/health` | GET | token_required | Verificação de status |
-| `/api/emails/send` | POST | token_required | Envio de emails |
-| `/api/emails/test-smtp` | POST | token_required | Teste SMTP |
-| `/api/emails/clear-flags` | POST | role_required('admin') | Limpar flags |
-| `/api/emails/sync-unsubscribed` | POST | role_required('admin') | Sincronizar descadastros |
-| `/api/config` | GET | role_required('admin') | Obter configurações |
-| `/api/config` | PUT | role_required('admin') | Atualizar configurações |
-| `/api/config/partial` | PATCH | role_required('admin') | Atualizar configurações parcialmente |
+| Endpoint                        | Método | Proteção               | Função                               |
+| ------------------------------- | ------ | ---------------------- | ------------------------------------ |
+| `/api/health`                   | GET    | token_required         | Verificação de status                |
+| `/api/emails/send`              | POST   | token_required         | Envio de emails                      |
+| `/api/emails/test-smtp`         | POST   | token_required         | Teste SMTP                           |
+| `/api/emails/clear-flags`       | POST   | role_required('admin') | Limpar flags                         |
+| `/api/emails/sync-unsubscribed` | POST   | role_required('admin') | Sincronizar descadastros             |
+| `/api/emails/sync-bounces`      | POST   | role_required('admin') | Sincronizar bounces                  |
+| `/api/config`                   | GET    | role_required('admin') | Obter configurações                  |
+| `/api/config`                   | PUT    | role_required('admin') | Atualizar configurações              |
+| `/api/config/partial`           | PATCH  | role_required('admin') | Atualizar configurações parcialmente |

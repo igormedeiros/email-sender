@@ -63,6 +63,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+deploy.sh
 
 # Logs
 *.log
@@ -90,3 +91,4 @@ reports/
 !example_email.yaml
 !templates/*.html.example
 !example_emails.csv.md
+

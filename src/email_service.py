@@ -16,307 +16,485 @@ from typing import List, Dict, Optional, Tuple, Union, Any
 from contextlib import contextmanager
 from datetime import datetime
 import signal
+import math
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn, TimeElapsedColumn
+from rich.table import Table
+from rich.logging import RichHandler
+from rich.text import Text
+from rich.live import Live
+from rich.panel import Panel
+from rich.box import ROUNDED
 
-from src.config import Config
-from src.utils.csv_reader import CSVReader
+from .config import Config
+from .utils.csv_reader import CSVReader
+from .email_templating import TemplateProcessor
+from .reporting import ReportGenerator
+from .smtp_manager import SmtpManager
 
 log = logging.getLogger("email_sender")
 
 class EmailService:
     def __init__(self, config: Config):
         self.config = config
+        self.template_processor = TemplateProcessor(config)
+        self.report_generator = ReportGenerator(reports_dir=self.config.email_config.get("reports_dir", "reports"))
+        self.smtp_manager = SmtpManager(config)
 
-    def _extract_email_address(self, sender: str) -> str:
-        """Extract email address from sender string format 'Name | Company <email@domain.com>'"""
-        match = re.search(r'<([^>]+)>', sender)
-        return match.group(1) if match else sender
+    def clear_sent_flags(self, csv_file: str, columns_to_clear: List[str] = ["enviado", "falhou"]) -> Dict[str, Any]:
+        """
+        Clears specified flag columns in a CSV file.
+        Sets the values in these columns to False.
+        Creates a backup of the original file.
+        """
+        console = Console()
+        try:
+            console.print(f"[bold]Limpando flags {columns_to_clear} do arquivo [cyan]{csv_file}[/cyan]...[/bold]")
+            
+            if not Path(csv_file).exists():
+                console.print(f"[bold red]Erro: Arquivo {csv_file} não encontrado[/bold red]")
+                raise FileNotFoundError(f"Arquivo {csv_file} não encontrado")
 
-    @contextmanager
-    def _create_smtp_connection(self):
-        retry_attempts = self.config.smtp_config.get("retry_attempts", 3)
-        retry_delay = self.config.smtp_config.get("retry_delay", 5)
-        timeout = self.config.smtp_config.get("send_timeout", 10)
-        last_exception = None
-        smtp = None
+            # Create backup
+            backup_file_path = self.create_backup(csv_file)
+            console.print(f"Backup do arquivo criado em: [cyan]{backup_file_path}[/cyan]")
 
-        for attempt in range(retry_attempts):
             try:
-                if attempt > 0:
-                    log.info(f"Tentativa {attempt + 1} de {retry_attempts} de conectar ao SMTP...")
-                
-                smtp = smtplib.SMTP(
-                    self.config.smtp_config["host"],
-                    self.config.smtp_config["port"],
-                    timeout=timeout
-                )
-                
-                if self.config.smtp_config["use_tls"]:
-                    smtp.starttls()
-                    
-                smtp.login(
-                    self.config.smtp_config["username"],
-                    self.config.smtp_config["password"]
-                )
-                
-                break
+                df = pd.read_csv(csv_file, sep=None, engine='python', dtype=str) # Read all as string to preserve data
             except Exception as e:
-                last_exception = e
-                if smtp:
-                    try:
-                        smtp.close()
-                    except:
-                        pass
-                if attempt < retry_attempts - 1 and retry_delay > 0:
-                    log.error(f"Falha na conexão SMTP: {str(e)}")
-                    time.sleep(retry_delay)
-                smtp = None
-        
-        if smtp is None:
-            raise Exception(f"Falha ao conectar ao servidor SMTP após {retry_attempts} tentativas: {str(last_exception)}")
+                console.print(f"[bold red]Erro ao ler o arquivo CSV: {str(e)}[/bold red]")
+                raise ValueError(f"Erro ao ler o arquivo CSV {csv_file}: {str(e)}")
 
-        try:
-            yield smtp
-        finally:
-            try:
-                smtp.quit()
-            except:
-                try:
-                    smtp.close()
-                except:
-                    pass
+            original_row_count = len(df)
+            cleared_flags_count = {}
 
-    def _create_message(self, to_email: str, subject: str, content: str, is_html: bool = False) -> MIMEMultipart:
-        message = MIMEMultipart("alternative")
-        message["Subject"] = subject
-        sender_email = self._extract_email_address(self.config.email_config["sender"])
-        message["From"] = self.config.email_config["sender"]
-        message["Reply-To"] = sender_email
-        message["Return-Path"] = sender_email
-        message["To"] = to_email
-        
-        # Se não for HTML, envia como texto simples
-        if not is_html:
-            text_part = MIMEText(content, "plain", "utf-8")
-            message.attach(text_part)
-        # Se for HTML, envia a parte HTML e também uma versão em texto simples convertida
-        else:
-            # Versão texto simples - versão básica sem formatação
-            text_content = re.sub(r'<.*?>', '', content)
-            text_content = re.sub(r'\s+', ' ', text_content)
-            text_part = MIMEText(text_content, "plain", "utf-8")
-            message.attach(text_part)
+            # Create a table to show changes
+            table = Table(title="Limpeza de Flags", box=ROUNDED)
+            table.add_column("Coluna", style="cyan")
+            table.add_column("Status", style="green")
+            table.add_column("Qtd. Limpa", style="yellow")
+
+            for col in columns_to_clear:
+                if col in df.columns:
+                    cleared_flags_count[col] = df[col].astype(bool).sum()
+                    df[col] = ""
+                    table.add_row(col, "✓ Limpa", str(cleared_flags_count[col]))
+                else:
+                    cleared_flags_count[col] = 0
+                    table.add_row(col, "⚠️ Não encontrada", "0")
             
-            # Versão HTML
-            html_part = MIMEText(content, "html", "utf-8")
-            message.attach(html_part)
+            df.to_csv(csv_file, index=False)
             
-        return message
+            console.print(table)
+            console.print(f"[green]✓ Flags limpas com sucesso em {csv_file}.[/green]")
 
-    def _read_template(self, template_path: str) -> str:
-        with open(template_path, 'r', encoding='utf-8') as file:
-            return file.read()
+            return {
+                "status": "success",
+                "csv_file": csv_file,
+                "backup_file": backup_file_path,
+                "original_row_count": original_row_count,
+                "cleared_flags_count": cleared_flags_count
+            }
 
-    def _format_template(self, template: str, recipient: Dict) -> str:
-        """Format template with recipient data."""
-        # Substituir parâmetros do formato {param}
-        result = template
-        for key, value in recipient.items():
-            placeholder = '{' + key + '}'
-            result = result.replace(placeholder, str(value))
-        return result
-
-    def send_batch(self, recipients: List[Dict], content: str, subject: str, is_html: bool = False) -> None:
-        try:
-            log.info(f"Iniciando envio em lote para {len(recipients)} destinatários")
-            log.info(f"Modo HTML: {'Sim' if is_html else 'Não'}")
-            
-            with self._create_smtp_connection() as smtp:
-                for recipient in recipients:
-                    try:
-                        # Formatar o conteúdo com os dados do destinatário
-                        formatted_content = self._format_template(content, recipient)
-                        
-                        # Criar a mensagem
-                        message = self._create_message(
-                            to_email=recipient["email"],
-                            subject=subject,
-                            content=formatted_content,
-                            is_html=is_html
-                        )
-                        
-                        # Log de debug antes do envio
-                        log.info(f"📧 {recipient['email']}")
-                        
-                        # Enviar a mensagem
-                        try:
-                            smtp.send_message(message)
-                            log.info(f"✅ {recipient['email']}")
-                        except smtplib.SMTPException as smtp_error:
-                            log.error(f"❌ {recipient['email']}")
-                            raise smtp_error
-                        except Exception as send_error:
-                            log.error(f"❌ {recipient['email']}")
-                            raise send_error
-                            
-                    except smtplib.SMTPServerDisconnected:
-                        # Se a conexão foi perdida, tenta reconectar e reenviar este email
-                        log.warning("Conexão SMTP perdida. Tentando reconectar...")
-                        with self._create_smtp_connection() as new_smtp:
-                            new_smtp.send_message(message)
-                    except Exception as e:
-                        # Outros erros devem ser propagados
-                        log.error(f"Erro no processamento do destinatário {recipient['email']}: {str(e)}")
-                        raise e
         except Exception as e:
-            log.error(f"Erro no envio em lote: {str(e)}")
+            console.print(f"[bold red]Erro ao limpar flags no arquivo {csv_file}: {str(e)}[/bold red]")
+            console.print_exception()
             raise
 
-    # Novas funções refatoradas a partir do CLI
-
-    def load_unsubscribed_emails(self, unsubscribe_file: str = "data/descadastros.csv") -> List[str]:
-        """Carrega a lista de emails descadastrados do arquivo CSV"""
-        try:
-            if not os.path.exists(unsubscribe_file):
-                log.warning(f"Arquivo de descadastros {unsubscribe_file} não encontrado.")
-                return []
-                
+    def load_unsubscribed_emails(self, unsubscribe_file: Optional[str] = None) -> set:
+        """
+        Carrega emails da lista de descadastro.
+        Retorna um set de emails em lower case.
+        """
+        console = Console()
+        unsubscribe_path = Path(unsubscribe_file or self.config.email_config.get("unsubscribe_file", "data/descadastros.csv"))
+        unsubscribed_emails = set()
+        
+        if unsubscribe_path.exists():
             try:
-                # Primeiro tenta ler como CSV com cabeçalho
-                df = pd.read_csv(unsubscribe_file)
-                if 'email' in df.columns:
-                    return df['email'].str.lower().tolist()
+                console.print(f"Carregando lista de descadastro de: [cyan]{unsubscribe_path}[/cyan]")
+                df_unsubscribed = pd.read_csv(unsubscribe_path, dtype=str)
+                if "email" in df_unsubscribed.columns:
+                    # Usamos dtype=str para garantir que todos os dados são strings
+                    # Mas precisamos limpar e remover NaNs explicitamente
+                    emails = df_unsubscribed["email"].fillna("").astype(str)
+                    # Remove strings vazias e "nan" e converte para lowercase
+                    valid_emails = [email.lower().strip() for email in emails 
+                                  if email and email.strip() and email.strip().lower() != 'nan']
+                    unsubscribed_emails = set(valid_emails)
+                    console.print(f"[green]✓[/green] Carregados {len(unsubscribed_emails)} emails da lista de descadastro")
                 else:
-                    # Se não tiver coluna 'email', assume que a primeira coluna contém emails
-                    return df.iloc[:, 0].str.lower().tolist()
+                    console.print(f"[yellow]⚠️ Coluna 'email' não encontrada em {unsubscribe_path}.[/yellow]")
             except Exception as e:
-                # Se falhar na leitura CSV, tenta ler como texto linha por linha
-                log.warning(f"Erro ao ler CSV de descadastros, tentando como texto: {str(e)}")
-                with open(unsubscribe_file, 'r', encoding='utf-8') as file:
-                    emails = []
-                    for line in file:
-                        email = line.strip().split(',')[0]  # Pega apenas a primeira parte antes da vírgula
-                        if email and email.lower() != 'email':  # Ignora cabeçalho e linhas vazias
-                            emails.append(email.lower())
-                    return emails
-        except Exception as e:
-            log.warning(f"Erro ao carregar emails descadastrados: {str(e)}.")
-            return []
+                console.print(f"[red]❌ Erro ao carregar arquivo de descadastro {unsubscribe_path}: {str(e)}[/red]")
+        else:
+            console.print(f"[yellow]⚠️ Arquivo de descadastro {unsubscribe_path} não encontrado.[/yellow]")
+            
+        return unsubscribed_emails
 
-    def register_failed_email(self, email: str, reason: str = None, file_path: str = "data/emails_falharam.csv"):
+    def load_bounced_emails(self, bounces_file: Optional[str] = None) -> set:
         """
-        Registra um email que falhou no envio em um arquivo CSV.
-        
-        Args:
-            email: Email que falhou no envio
-            reason: Motivo da falha (opcional)
-            file_path: Caminho para o arquivo CSV (padrão: data/emails_falharam.csv)
+        Carrega emails da lista de bounces ativos.
+        Retorna um set de emails em lower case.
         """
-        # Garante que o diretório existe
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        console = Console()
+        bounces_path = Path(bounces_file or self.config.email_config.get("bounces_file", "data/bounces.csv"))
+        bounced_emails = set()
         
-        # Data e hora atual
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Verifica se o arquivo existe
-        file_exists = os.path.isfile(file_path)
-        
-        # Abre o arquivo em modo append
-        with open(file_path, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f, delimiter=';')
+        if bounces_path.exists():
+            try:
+                console.print(f"Carregando lista de bounces de: [cyan]{bounces_path}[/cyan]")
+                df_bounces = pd.read_csv(bounces_path, dtype=str)
+                if "email" in df_bounces.columns:
+                    # Usamos dtype=str para garantir que todos os dados são strings
+                    # Mas precisamos limpar e remover NaNs explicitamente
+                    emails = df_bounces["email"].fillna("").astype(str)
+                    # Remove strings vazias e "nan" e converte para lowercase
+                    valid_emails = [email.lower().strip() for email in emails 
+                                  if email and email.strip() and email.strip().lower() != 'nan']
+                    bounced_emails = set(valid_emails)
+                    console.print(f"[green]✓[/green] Carregados {len(bounced_emails)} emails da lista de bounces")
+                else:
+                    console.print(f"[yellow]⚠️ Coluna 'email' não encontrada em {bounces_path}.[/yellow]")
+            except Exception as e:
+                console.print(f"[red]❌ Erro ao carregar arquivo de bounces {bounces_path}: {str(e)}[/red]")
+        else:
+            console.print(f"[yellow]⚠️ Arquivo de bounces {bounces_path} não encontrado.[/yellow]")
             
-            # Escreve o cabeçalho se o arquivo não existir
-            if not file_exists:
-                writer.writerow(['email', 'data', 'motivo'])
-            
-            # Escreve o email com data e motivo
-            writer.writerow([email, timestamp, reason or "Falha no envio"])
-            
-        log.info(f"Email {email} registrado em {file_path}")
+        return bounced_emails
 
     def sync_unsubscribed_emails(self, csv_path: str, unsubscribe_file: str) -> int:
+        console = Console()
+        unsubscribed = set()
+        
+        console.print(f"[bold blue]Sincronizando lista de descadastros...[/bold blue]")
+        
+        try:
+            if not Path(unsubscribe_file).exists():
+                console.print(f"[yellow]⚠️ Arquivo de descadastros não encontrado: {unsubscribe_file}[/yellow]")
+                console.print("Nenhuma flag 'descadastro' será definida como 'S'. As existentes podem ser limpas.")
+                # Prossegue com 'unsubscribed' vazio, o que limpará as flags no arquivo principal.
+            else:
+                # Tenta ler o arquivo de descadastros, tratando possíveis problemas
+                try:
+                    console.print(f"Lendo lista de descadastros de: [cyan]{unsubscribe_file}[/cyan]")
+                    df_unsubscribed = pd.read_csv(unsubscribe_file, sep=None, engine='python', on_bad_lines='warn', low_memory=False)
+                    if 'email' in df_unsubscribed.columns:
+                        unsubscribed = set(df_unsubscribed['email'].astype(str).str.lower().str.strip().dropna())
+                    elif not df_unsubscribed.empty: # Se não tem coluna 'email', mas tem dados
+                        console.print("[yellow]⚠️ Coluna 'email' não encontrada, usando primeira coluna[/yellow]")
+                        unsubscribed = set(df_unsubscribed.iloc[:, 0].astype(str).str.lower().str.strip().dropna())
+                except pd.errors.EmptyDataError:
+                    console.print(f"[yellow]⚠️ Arquivo de descadastros {unsubscribe_file} está vazio.[/yellow]")
+                except Exception as e_csv:
+                    console.print(f"[yellow]⚠️ Erro ao ler {unsubscribe_file} como CSV: {str(e_csv)}. Tentando ler como texto.[/yellow]")
+                    try:
+                        with open(unsubscribe_file, 'r', encoding='utf-8') as file:
+                            for line in file:
+                                email = line.strip().lower()
+                                # Checagem básica para ser um email e não um cabeçalho
+                                if email and '@' in email and not email.lower().startswith('email'):
+                                    unsubscribed.add(email)
+                    except Exception as e_txt:
+                        console.print(f"[red]❌ Falha ao ler {unsubscribe_file} como CSV e como texto: {str(e_txt)}.[/red]")
+            
+            if not unsubscribed:
+                console.print(f"[yellow]⚠️ Nenhum email válido encontrado na lista de descadastros.[/yellow]")
+                console.print(f"Flags 'descadastro' existentes no arquivo principal serão limpas.")
+            else:
+                console.print(f"[green]✓[/green] Encontrados {len(unsubscribed)} emails na lista de descadastros.")
+
+        except Exception as e_outer: # Captura exceções na leitura do unsubscribe_file
+            console.print(f"[red]❌ Erro crítico ao processar o arquivo de descadastros: {str(e_outer)}[/red]")
+            return 0
+
+        try:
+            if not Path(csv_path).exists():
+                console.print(f"[red]❌ Arquivo CSV principal não encontrado: {csv_path}[/red]")
+                return 0
+
+            console.print(f"Lendo arquivo CSV principal: [cyan]{csv_path}[/cyan]")
+            df = pd.read_csv(csv_path, sep=None, engine='python', on_bad_lines='warn')
+
+            if 'email' not in df.columns:
+                console.print(f"[red]❌ Coluna 'email' não encontrada no arquivo principal.[/red]")
+                return 0
+
+            if df.empty:
+                console.print(f"[yellow]⚠️ Arquivo CSV principal está vazio. Nada a sincronizar.[/yellow]")
+                df.to_csv(csv_path, index=False)
+                return 0
+
+            # Garante que a coluna 'descadastro' exista.
+            if 'descadastro' not in df.columns:
+                console.print("Criando coluna 'descadastro' que não existia no CSV.")
+                df['descadastro'] = ''
+            else:
+                # Converte para string e preenche NaNs para evitar erros com o .map e garantir consistência.
+                df['descadastro'] = df['descadastro'].astype(str).fillna('')
+
+            # Atualiza a flag 'descadastro' APENAS para emails existentes no DataFrame principal (df).
+            # Não adiciona novas linhas.
+            # Se o email do df está em 'unsubscribed', marca 'S'.
+            # Se o email do df NÃO está em 'unsubscribed', marca '' (limpa a flag).
+            df['descadastro'] = df['email'].astype(str).str.lower().str.strip().isin(unsubscribed).map({True: 'S', False: ''})
+
+            update_count = (df['descadastro'] == 'S').sum()
+
+            # Salva o arquivo com as alterações
+            console.print(f"Salvando alterações em: [cyan]{csv_path}[/cyan]")
+            df.to_csv(csv_path, index=False)
+
+            console.print(f"[green]✓ Sincronização concluída![/green] {update_count} emails estão marcados como descadastro.")
+            
+            # Criar uma tabela simples para mostrar o resultado
+            result_table = Table(title="Resumo da Sincronização", box=ROUNDED)
+            result_table.add_column("Métrica", style="dim")
+            result_table.add_column("Valor", style="bold")
+            
+            result_table.add_row("Total de emails no CSV", str(len(df)))
+            result_table.add_row("Emails na lista de descadastros", str(len(unsubscribed)))
+            result_table.add_row("Emails marcados como descadastro", str(update_count))
+            
+            console.print(result_table)
+            
+            return update_count
+
+        except pd.errors.EmptyDataError:
+            console.print(f"[yellow]⚠️ Arquivo CSV principal está vazio após tentativa de leitura.[/yellow]")
+            try:
+                # Tenta salvar um DataFrame vazio com colunas
+                pd.DataFrame(columns=['email', 'descadastro']).to_csv(csv_path, index=False)
+                console.print(f"Arquivo vazio salvo com as colunas corretas.")
+            except Exception as e_save_empty:
+                console.print(f"[red]❌ Erro ao tentar salvar arquivo CSV vazio: {str(e_save_empty)}[/red]")
+            return 0
+        except Exception as e:
+            console.print(f"[red]❌ Erro crítico ao processar o arquivo CSV principal: {str(e)}[/red]")
+            console.print_exception()
+            return 0 # Indica que 0 emails foram atualizados devido ao erro.
+
+    def sync_bounced_emails(self, csv_file: str, bounces_file: Optional[str] = None) -> int:
         """
-        Sincroniza a lista de emails descadastrados com o arquivo principal.
+        Marca emails com bounce no arquivo CSV principal.
+        Adiciona/atualiza a coluna 'bounced' para True para emails encontrados na lista de bounces.
+        Retorna o número de emails atualizados.
+        """
+        console = Console()
+        console.rule("[bold blue]Sincronizando Bounces[/bold blue]")
+        console.print(f"Iniciando sincronização de bounces para [cyan]{csv_file}[/cyan] usando [cyan]{bounces_file or 'config default'}[/cyan]")
+        
+        bounced_set = self.load_bounced_emails(bounces_file)
+        if not bounced_set:
+            console.print("[yellow]⚠️ Nenhum email na lista de bounces. Nenhuma sincronização necessária.[/yellow]")
+            return 0
+
+        try:
+            console.print(f"Lendo arquivo CSV principal: [cyan]{csv_file}[/cyan]")
+            df = pd.read_csv(csv_file, dtype=str)
+            
+            if "email" not in df.columns:
+                console.print(f"[red]❌ Coluna 'email' não encontrada no arquivo CSV principal {csv_file}[/red]")
+                raise ValueError(f"Coluna 'email' não encontrada no arquivo CSV principal {csv_file}")
+
+            original_bounced_count = 0
+            if "bounced" in df.columns:
+                df["bounced"] = df["bounced"].fillna("").astype(str).str.lower().map({'true': True, '1': True, 'yes': True}).fillna(False)
+                original_bounced_count = df["bounced"].sum()
+                console.print(f"Coluna 'bounced' existente com {original_bounced_count} emails marcados")
+            else:
+                console.print("Coluna 'bounced' não existente, criando...")
+                df["bounced"] = False
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                console=console
+            ) as progress:
+                task = progress.add_task("[green]Verificando emails...", total=len(df))
+                
+                updated_count = 0
+                for index, row in df.iterrows():
+                    progress.update(task, advance=1)
+                    
+                    if pd.notna(row["email"]):
+                        email_lower = str(row["email"]).lower().strip()
+                        if email_lower in bounced_set:
+                            if not df.at[index, "bounced"]:
+                                df.at[index, "bounced"] = True
+                                updated_count += 1
+            
+            if updated_count > 0:
+                console.print(f"Salvando alterações em [cyan]{csv_file}[/cyan]...")
+                df.to_csv(csv_file, index=False)
+                console.print(f"[green]✓[/green] {updated_count} emails marcados como bounced em {csv_file}.")
+            else:
+                console.print(f"[yellow]⚠️ Nenhum email novo precisou ser marcado como bounced em {csv_file}.[/yellow]")
+
+            current_bounced_count = df["bounced"].sum()
+            
+            # Criar uma tabela para mostrar o resultado
+            result_table = Table(title="Resumo de Bounces", box=ROUNDED)
+            result_table.add_column("Métrica", style="dim")
+            result_table.add_column("Valor", style="bold")
+            
+            result_table.add_row("Total de emails no CSV", str(len(df)))
+            result_table.add_row("Emails na lista de bounces", str(len(bounced_set)))
+            result_table.add_row("Bounces antes da sincronização", str(original_bounced_count))
+            result_table.add_row("Bounces depois da sincronização", str(current_bounced_count))
+            result_table.add_row("Novos emails marcados", str(updated_count))
+            
+            console.print(result_table)
+            
+            return updated_count
+
+        except FileNotFoundError:
+            log.error(f"Arquivo CSV principal {csv_file} não encontrado para sincronização de bounces.")
+            raise
+        except Exception as e:
+            log.error(f"Erro ao sincronizar emails com bounce em {csv_file}: {e}")
+            raise
+
+    def send_batch(self, recipients: List[Dict], content: str, subject: str, is_html: bool = False) -> None:
+        if not recipients:
+            log.warning("send_batch called with no recipients.")
+            return
+
+        recipient_email = recipients[0].get("email")
+        if not recipient_email:
+            log.error("Recipient email missing in send_batch call.")
+            raise ValueError("Recipient email missing in send_batch call")
+
+        try:
+            log.debug(f"Using SmtpManager to send email to {recipient_email} with subject \"{subject}\"")
+            self.smtp_manager.send_email(
+                to_email=recipient_email,
+                subject=subject,
+                content=content,
+                is_html=is_html
+            )
+            log.debug(f"Email to {recipient_email} passed to SmtpManager.")
+        except Exception as e:
+            log.error(f"SmtpManager failed to send email to {recipient_email}: {str(e)}")
+            raise
+
+    def process_email_template(self, template_path: str, recipient: Dict, email_subject: str) -> str:
+        """
+        Processa o template HTML, substituindo as variáveis pelos valores do destinatário.
         
         Args:
-            csv_path: Caminho para o arquivo CSV principal
-            unsubscribe_file: Caminho para o arquivo CSV de descadastros
+            template_path: Caminho para o arquivo de template HTML
+            recipient: Dicionário com os dados do destinatário
+            email_subject: Assunto do email (can be used by template processor if needed)
             
         Returns:
-            Número de emails marcados como descadastrados
+            HTML formatado
         """
         try:
-            log.info(f"Sincronizando lista de descadastros {unsubscribe_file} com {csv_path}...")
+            # Corrected method call to 'process' and ensure template_path is a Path object
+            return self.template_processor.process(Path(template_path), recipient)
+        except Exception as e:
+            log.error(f"Erro ao processar template via TemplateProcessor: {str(e)}")
+            # Log a more detailed traceback for AttributeError
+            if isinstance(e, AttributeError):
+                log.exception("AttributeError details:")
+            raise
+
+    def generate_report(self, start_time: float, end_time: float, total_processed_from_csv: int, successful_sends: int, failed_sends: int, skipped_unsubscribed: int, skipped_bounced: int, skipped_invalid_email: int) -> Dict[str, Any]:
+        """
+        Gera um relatório do processo de envio de emails usando ReportGenerator.
+        """
+        try:
+            # Adapt to use the new parameters for ReportGenerator
+            return self.report_generator.generate_report(
+                start_time=start_time,
+                end_time=end_time,
+                total_processed_from_csv=total_processed_from_csv,
+                successful_sends=successful_sends,
+                failed_sends=failed_sends,
+                skipped_unsubscribed=skipped_unsubscribed,
+                skipped_bounced=skipped_bounced,
+                skipped_invalid_email=skipped_invalid_email
+            )
+        except Exception as e:
+            # Assuming log is already configured with Rich for this top-level call in EmailService
+            log.error(f"Erro ao gerar relatório via ReportGenerator: {str(e)}")
+            raise
+
+    def remove_duplicates(self, csv_file: str, column: str = "email", keep: str = "first", output_file: Optional[str] = None) -> Dict[str, Any]:
+        console = Console()
+        try:
+            console.rule("[bold blue]Removendo Duplicados[/bold blue]")
+            console.print(f"Removendo duplicados do arquivo [cyan]{csv_file}[/cyan] baseado na coluna '[bold]{column}[/bold]'...")
             
-            # Verificar se os arquivos existem
-            if not Path(csv_path).exists():
-                log.error(f"Arquivo principal {csv_path} não encontrado.")
-                return 0
-                
-            if not Path(unsubscribe_file).exists():
-                log.warning(f"Arquivo de descadastros {unsubscribe_file} não encontrado.")
-                return 0
-                
-            # Otimização: Usar sets para operações mais rápidas
-            unsubscribed = set()
+            if not Path(csv_file).exists():
+                console.print(f"[bold red]❌ Erro: Arquivo {csv_file} não encontrado[/bold red]")
+                raise FileNotFoundError(f"Arquivo {csv_file} não encontrado")
             
-            # Lê lista de descadastros de forma eficiente 
             try:
-                # Tenta primeiro ler como CSV com cabeçalho
-                df_unsubscribed = pd.read_csv(unsubscribe_file, sep=None, engine='python', low_memory=False)
-                if 'email' in df_unsubscribed.columns:
-                    unsubscribed = set(df_unsubscribed['email'].astype(str).str.lower().dropna())
-                else:
-                    # Se não tiver coluna 'email', tenta ler a primeira coluna
-                    unsubscribed = set(df_unsubscribed.iloc[:, 0].astype(str).str.lower().dropna())
+                with console.status(f"Lendo arquivo CSV [cyan]{csv_file}[/cyan]..."):
+                    df = pd.read_csv(csv_file, sep=None, engine='python')
             except Exception as e:
-                # Se falhar, tenta ler linha por linha como texto
-                log.warning(f"Tentando ler arquivo como texto simples: {str(e)}")
-                with open(unsubscribe_file, 'r', encoding='utf-8') as file:
-                    for line in file:
-                        email = line.strip().lower()
-                        if email and not email.startswith('email'):
-                            unsubscribed.add(email)
-                
-            if not unsubscribed:
-                log.warning(f"Nenhum email encontrado na lista de descadastros.")
-                return 0
-                
-            log.info(f"Encontrados {len(unsubscribed)} emails descadastrados.")
+                console.print(f"[bold red]❌ Erro ao ler o arquivo CSV: {str(e)}[/bold red]")
+                raise ValueError(f"Erro ao ler o arquivo CSV: {str(e)}")
             
-            # Atualiza o arquivo principal - carregando por chunks para maior eficiência com arquivos grandes
-            try:
-                df = pd.read_csv(csv_path, sep=None, engine='python')
+            if column not in df.columns:
+                console.print(f"[bold red]❌ Coluna '{column}' não encontrada no arquivo CSV[/bold red]")
+                raise ValueError(f"Coluna '{column}' não encontrada no arquivo CSV")
+            
+            total_antes = len(df)
+            with console.status(f"Processando {total_antes} registros..."):
+                df_without_duplicates = df.drop_duplicates(subset=[column], keep=keep)
+            total_depois = len(df_without_duplicates)
+            duplicados_removidos = total_antes - total_depois
+            
+            if not output_file:
+                backup_file = self.create_backup(csv_file)
+                console.print(f"Backup criado em: [cyan]{backup_file}[/cyan]")
+                output_path = csv_file
+            else:
+                output_path = output_file
+                backup_file = None
+                console.print(f"Salvando em arquivo de saída: [cyan]{output_path}[/cyan]")
+            
+            with console.status(f"Salvando {total_depois} registros no arquivo..."):
+                df_without_duplicates.to_csv(output_path, index=False)
+            
+            # Criar uma tabela para o resultado
+            table = Table(title="Resultado de Remoção de Duplicados", box=ROUNDED)
+            table.add_column("Métrica", style="cyan")
+            table.add_column("Valor", style="bold")
+            
+            table.add_row("Registros Originais", str(total_antes))
+            table.add_row("Registros Após Remoção", str(total_depois))
+            table.add_row("Duplicados Removidos", f"[bold {'green' if duplicados_removidos > 0 else 'yellow'}]{duplicados_removidos}[/bold]")
+            table.add_row("Arquivo de Saída", output_path)
+            if backup_file:
+                table.add_row("Backup", str(backup_file))
+            
+            console.print(table)
+            
+            result = {
+                "status": "success",
+                "total_antes": total_antes,
+                "total_depois": total_depois,
+                "duplicados_removidos": duplicados_removidos,
+                "output_file": str(output_path),
+                "backup_file": str(backup_file) if backup_file else None
+            }
+            
+            if duplicados_removidos > 0:
+                console.print(f"[green]✓[/green] {duplicados_removidos} duplicados removidos com sucesso!")
+            else:
+                console.print(f"[yellow]⚠️[/yellow] Nenhum duplicado encontrado para a coluna '{column}'.")
                 
-                # Verificar se a coluna 'email' existe
-                if 'email' not in df.columns:
-                    log.error(f"Coluna 'email' não encontrada no arquivo {csv_path}")
-                    return 0
-                
-                # Garantir que a coluna 'descadastro' existe
-                if 'descadastro' not in df.columns:
-                    df['descadastro'] = ''
-                
-                # Determinar quais emails existem no CSV principal
-                existing_emails = set(df['email'].astype(str).str.lower())
-                
-                # Marcar emails como descadastrados
-                df['descadastro'] = df['email'].astype(str).str.lower().isin(unsubscribed).map({True: 'S', False: ''})
-                
-                # Calcular estatísticas
-                total_blacklisted = len(df[df['descadastro'] == 'S'])
-                update_count = total_blacklisted
-                
-                # Salvar o arquivo atualizado
-                df.to_csv(csv_path, index=False)
-                
-                log.info(f"✅ Sincronização concluída! {update_count} emails atualizados.")
-                return update_count
-            except Exception as e:
-                log.error(f"Erro ao processar arquivo CSV principal: {str(e)}")
-                raise
+            return result
                 
         except Exception as e:
-            log.error(f"Erro ao sincronizar emails descadastrados: {str(e)}")
+            console.print(f"[bold red]❌ Erro ao remover duplicados: {str(e)}[/bold red]")
+            console.print_exception()
             raise
 
     def send_test_email(self, recipient: str) -> bool:
@@ -329,538 +507,393 @@ class EmailService:
         Returns:
             True se o email foi enviado com sucesso, False caso contrário
         """
+        console = Console()
+        console.rule("[bold blue]Envio de Email de Teste[/bold blue]")
+        
+        # Validar o email antes de tentar enviar
+        if not recipient or not isinstance(recipient, str):
+            console.print(f"[bold red]❌ Email inválido: {recipient} (tipo: {type(recipient).__name__})[/bold red]")
+            return False
+            
+        # Verificar formato básico de email usando regex
+        import re
+        email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+        if not email_pattern.match(recipient):
+            console.print(f"[bold yellow]⚠️ Formato de email potencialmente inválido: {recipient}[/bold yellow]")
+            # Continua mesmo assim, pois podemos ter formatos especiais em ambientes de teste
+        
         try:
-            # Usar subject do arquivo email.yaml
             email_subject = self.config.content_config.get("email", {}).get("subject", "SMTP Test Email")
+            message_content = "This is a test email from the email-sender application."
             
-            message = "This is a test email from the email-sender application."
+            console.print(f"Enviando email de teste para: [bold cyan]{recipient}[/bold cyan]")
+            console.print(f"Assunto: [magenta]{email_subject}[/magenta]")
             
-            with self._create_smtp_connection() as smtp:
-                test_message = self._create_message(
+            with console.status("[bold green]Enviando email de teste...[/bold green]") as status:
+                self.smtp_manager.send_email(
                     to_email=recipient,
                     subject=email_subject,
-                    content=message
+                    content=message_content,
+                    is_html=False
                 )
-                smtp.send_message(test_message)
-                
+            
+            console.print(f"[bold green]✓ Email de teste enviado com sucesso para {recipient}[/bold green]")
+            
+            # Criar uma tabela para mostrar detalhes
+            table = Table(title="Detalhes do Email de Teste", box=ROUNDED)
+            table.add_column("Campo", style="cyan")
+            table.add_column("Valor", style="green")
+            
+            table.add_row("Destinatário", recipient)
+            table.add_row("Assunto", email_subject)
+            table.add_row("Conteúdo HTML", "Não")
+            table.add_row("Status", "[bold green]Enviado com Sucesso[/bold green]")
+            
+            console.print(table)
+            
             return True
         except Exception as e:
-            log.error(f"Erro ao enviar email de teste: {str(e)}")
+            console.print(f"[bold red]❌ Erro ao enviar email de teste para {recipient}:[/bold red]")
+            console.print(f"[red]{str(e)}[/red]")
+            console.print_exception()
+            
+            # Ainda criar uma tabela para mostrar detalhes, mesmo com erro
+            table = Table(title="Detalhes do Email de Teste", box=ROUNDED)
+            table.add_column("Campo", style="cyan")
+            table.add_column("Valor", style="red")
+            
+            table.add_row("Destinatário", recipient)
+            table.add_row("Assunto", email_subject if 'email_subject' in locals() else "Não definido")
+            table.add_row("Status", "[bold red]Falha no Envio[/bold red]")
+            table.add_row("Erro", str(e))
+            
+            console.print(table)
+            
             raise
 
     def create_backup(self, file_path: str) -> str:
         """
-        Cria um backup do arquivo CSV.
+        Cria um backup do arquivo especificado.
         
         Args:
-            file_path: Caminho para o arquivo CSV a ser copiado
+            file_path: Caminho do arquivo a ser copiado
             
         Returns:
-            Caminho para o arquivo de backup criado
+            Caminho do arquivo de backup criado
         """
         try:
-            # Verificar se o arquivo existe
-            if not Path(file_path).exists():
-                raise FileNotFoundError(f"Arquivo para backup não encontrado: {file_path}")
-                
-            # Criar diretório de backup se não existir
             backup_dir = Path("backup")
             backup_dir.mkdir(exist_ok=True)
             
-            # Gerar nome do arquivo de backup
-            file_name = Path(file_path).name
-            backup_path = backup_dir / f"{file_name}.bak"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = backup_dir / f"{Path(file_path).stem}_{timestamp}.csv"
             
-            # Copiar o arquivo
-            shutil.copy2(file_path, backup_path)
+            shutil.copy2(file_path, backup_file)
+            log.info(f"Backup criado em: {backup_file}")
             
-            log.info(f"Backup criado: {backup_path}")
-            return str(backup_path)
+            return str(backup_file)
         except Exception as e:
             log.error(f"Erro ao criar backup: {str(e)}")
             raise
 
-    def clear_sent_flags(self, csv_file: str) -> int:
+    def process_email_sending(self, csv_file: str = None, template: str = "", skip_unsubscribed_sync: bool = False, is_test_mode: bool = True, bounces_file_path: str = "data/bounces.csv") -> Dict[str, Any]:
         """
-        Limpa as flags 'enviado' e 'falhou' no arquivo CSV para permitir o reenvio de emails.
+        Processa o envio de emails em lote com base em um arquivo CSV e um template HTML.
+        """
+        csv_reader_instance = None  # Initialize to None
+        # Initialize console for rich output
+        console = Console()
+        rich_log_handler = RichHandler(console=console, show_time=False, show_path=False, rich_tracebacks=True, tracebacks_show_locals=True)
         
-        Args:
-            csv_file: Caminho para o arquivo CSV
-            
-        Returns:
-            Número de registros com flags limpas
-        """
+        # Remove any existing RichHandler to avoid duplicates
+        for handler in log.handlers[:]:
+            if isinstance(handler, RichHandler):
+                log.removeHandler(handler)
+                
+        log.addHandler(rich_log_handler)
+        log.propagate = False # Prevent duplication if root logger also has handlers
+
         try:
-            if not Path(csv_file).exists():
-                raise FileNotFoundError(f"Arquivo CSV não encontrado: {csv_file}")
-            
-            # Criar backup do arquivo antes de modificá-lo
-            backup_path = self.create_backup(csv_file)
-            log.info(f"Backup do arquivo criado em: {backup_path}")
-                
-            # Carrega o arquivo CSV
-            df = pd.read_csv(csv_file)
-            
-            # Contador para registros modificados
-            modified_count = 0
-            
-            # Limpa o flag 'enviado'
-            if 'enviado' in df.columns:
-                modified_count += len(df[df['enviado'] == 'ok'])
-                df['enviado'] = ''
-                
-            # Limpa o flag 'falhou'
-            if 'falhou' in df.columns:
-                modified_count += len(df[df['falhou'] == 'ok'])
-                df['falhou'] = ''
-                
-            # Salva o arquivo atualizado
-            df.to_csv(csv_file, index=False)
-            
-            return modified_count
-        except Exception as e:
-            log.error(f"Erro ao limpar flags de envio: {str(e)}")
-            raise
-
-    def process_email_template(self, template_path: str, recipient: Dict, email_subject: str) -> str:
-        """
-        Processa o template HTML, substituindo as variáveis pelos valores do destinatário.
-        
-        Args:
-            template_path: Caminho para o arquivo de template HTML
-            recipient: Dicionário com os dados do destinatário
-            email_subject: Assunto do email
-            
-        Returns:
-            HTML formatado
-        """
-        try:
-            # Carrega o template HTML
-            with open(template_path, 'r', encoding='utf-8') as file:
-                html_content = file.read()
-            
-            # Primeiro substituir os campos obrigatórios
-            html_content = html_content.replace("{unsubscribe_url}", self.config.content_config.get("urls", {}).get("unsubscribe", ""))
-            html_content = html_content.replace("{subscribe_url}", self.config.content_config.get("urls", {}).get("subscribe", ""))
-            html_content = html_content.replace("{email}", recipient['email'])
-            
-            # Substituir variáveis do evento
-            html_content = html_content.replace("{link_evento}", self.config.content_config.get("evento", {}).get("link", ""))
-            html_content = html_content.replace("{data_evento}", self.config.content_config.get("evento", {}).get("data", ""))
-            html_content = html_content.replace("{cidade}", self.config.content_config.get("evento", {}).get("cidade", ""))
-            html_content = html_content.replace("{local}", self.config.content_config.get("evento", {}).get("local", ""))
-            
-            # Processar parágrafo condicional de desconto
-            desconto_paragrafo = ""
-            if "promocao" in self.config.content_config and "desconto" in self.config.content_config["promocao"]:
-                desconto_valor = self.config.content_config["promocao"]["desconto"]
-                desconto_paragrafo = f"""
-                <div style="background-color: #e9f2fa; border-left: 4px solid #0066CC; padding: 15px; margin: 20px 0; border-radius: 4px;">
-                    <p style="margin: 0; font-size: 1.1em;">
-                        <strong style="color: #0066CC;">OFERTA ESPECIAL:</strong> Estamos oferecendo <strong style="color: #0066CC; font-size: 1.15em;">{desconto_valor} de desconto</strong> 
-                        no treinamento para quem está recebendo este email.
-                    </p>
-                    <p style="margin: 10px 0 0 0;">
-                        Não é necessário digitar nenhum código promocional – ele já está aplicado e o 
-                        desconto é aplicado automaticamente no link acima.
-                    </p>
-                </div>
-                """
-            html_content = html_content.replace("{desconto_paragrafo}", desconto_paragrafo)
-            
-            # Substituir campos de conteúdo dinâmico da configuração
-            for key, value in self.config.content_config.items():
-                placeholder = f"{{{key}}}"
-                if placeholder in html_content:
-                    html_content = html_content.replace(placeholder, str(value))
-            
-            # Verificar todos os campos nas chaves de formatação {campo}
-            placeholders = re.findall(r'\{([^}]+)\}', html_content)
-            
-            # Substituir campos extras se existirem no destinatário
-            for placeholder in placeholders:
-                if placeholder in recipient:
-                    value = recipient[placeholder]
-                    html_content = html_content.replace(f"{{{placeholder}}}", str(value))
-                else:
-                    html_content = html_content.replace(f"{{{placeholder}}}", "")
-            
-            return html_content
-        except Exception as e:
-            log.error(f"Erro ao processar template: {str(e)}")
-            raise
-
-    def generate_report(self, start_time: float, end_time: float, total_sent: int, successful: int, failed: int) -> Dict[str, Any]:
-        """
-        Gera um relatório do processo de envio de emails.
-        
-        Args:
-            start_time: Timestamp de início do envio
-            end_time: Timestamp de fim do envio
-            total_sent: Total de emails tentados
-            successful: Total de emails enviados com sucesso
-            failed: Total de emails com falha
-            
-        Returns:
-            Dicionário com os dados do relatório e nome do arquivo
-        """
-        duration = end_time - start_time
-        avg_time = duration/total_sent if total_sent > 0 else 0
-        
-        # Calcular horas e minutos
-        horas = int(duration // 3600)
-        minutos = int((duration % 3600) // 60)
-        segundos = int(duration % 60)
-        
-        report = f"""Relatório de Envio de Emails
-Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
------------------------------------------
-Total de emails tentados: {total_sent}
-Enviados com sucesso: {successful}
-Falhas: {failed}
-Tempo total: {duration:.2f} segundos ({horas}h {minutos}min {segundos}s)
-Tempo médio por email: {avg_time:.2f} segundos
-"""
-        # Ensure reports directory exists
-        Path("reports").mkdir(exist_ok=True)
-        
-        # Nome do arquivo de relatório
-        report_file = f"email_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        
-        # Save report in reports directory
-        report_path = Path("reports") / report_file
-        with open(report_path, 'w', encoding='utf-8') as f:
-            f.write(report)
-        
-        return {
-            "report": report,
-            "report_file": report_file,
-            "duration": duration,
-            "avg_time": avg_time,
-            "total_sent": total_sent,
-            "successful": successful,
-            "failed": failed,
-            "duracao_formatada": f"{horas}h {minutos}min {segundos}s"
-        }
-
-    def remove_duplicates(self, csv_file: str, column: str = "email", keep: str = "first", output_file: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Remove linhas duplicadas de um arquivo CSV baseado em uma coluna específica.
-        
-        Args:
-            csv_file: Caminho para o arquivo CSV a ser processado
-            column: Coluna a ser usada para identificar duplicados (padrão: 'email')
-            keep: Qual ocorrência manter ('first' ou 'last', padrão: 'first')
-            output_file: Arquivo de saída. Se não especificado, substitui o original
-            
-        Returns:
-            Dicionário com resultados do processamento
-        """
-        try:
-            log.info(f"Removendo duplicados do arquivo {csv_file} baseado na coluna '{column}'...")
-            
-            # Verificar se o arquivo existe
-            if not Path(csv_file).exists():
-                raise FileNotFoundError(f"Arquivo {csv_file} não encontrado")
-            
-            # Carregar o arquivo CSV
-            try:
-                # Tentar determinar automaticamente o delimitador
-                df = pd.read_csv(csv_file, sep=None, engine='python')
-            except Exception as e:
-                raise ValueError(f"Erro ao ler o arquivo CSV: {str(e)}")
-            
-            # Verificar se a coluna existe
-            if column not in df.columns:
-                raise ValueError(f"Coluna '{column}' não encontrada no arquivo CSV")
-            
-            # Contar registros antes da remoção
-            total_antes = len(df)
-            
-            # Remover duplicados
-            df_without_duplicates = df.drop_duplicates(subset=[column], keep=keep)
-            
-            # Contar registros após a remoção
-            total_depois = len(df_without_duplicates)
-            duplicados_removidos = total_antes - total_depois
-            
-            # Determinar o arquivo de saída
-            if not output_file:
-                # Se não foi especificado, faz backup do original e substitui
-                backup_dir = Path("backup")
-                backup_dir.mkdir(exist_ok=True)
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_file = backup_dir / f"{Path(csv_file).stem}_{timestamp}.csv"
-                
-                # Criar backup
-                shutil.copy2(csv_file, backup_file)
-                log.info(f"Backup criado em: {backup_file}")
-                
-                # Salvar no arquivo original
-                output_path = csv_file
-            else:
-                # Usar o arquivo de saída especificado
-                output_path = output_file
-                backup_file = None
-            
-            # Salvar o arquivo sem duplicados
-            df_without_duplicates.to_csv(output_path, index=False)
-            
-            # Preparar resultado
-            result = {
-                "status": "success",
-                "total_antes": total_antes,
-                "total_depois": total_depois,
-                "duplicados_removidos": duplicados_removidos,
-                "output_file": str(output_path),
-                "backup_file": str(backup_file) if backup_file else None
-            }
-            
-            # Log do resultado
-            if duplicados_removidos > 0:
-                log.info(f"{duplicados_removidos} duplicados removidos com sucesso!")
-            else:
-                log.info(f"Nenhum duplicado encontrado para a coluna '{column}'.")
-                
-            return result
-                
-        except Exception as e:
-            log.error(f"Erro ao remover duplicados: {str(e)}")
-            raise
-
-    def process_email_sending(self, csv_file: str = None, template: str = "", skip_unsubscribed_sync: bool = False, is_test_mode: bool = True) -> Dict[str, Any]:
-        """
-        Processa o envio de emails em lote.
-        
-        Args:
-            csv_file: Caminho para o arquivo CSV (opcional, usa o da configuração se não fornecido)
-            template: Caminho para o arquivo de template HTML
-            skip_unsubscribed_sync: Se deve pular a sincronização de emails descadastrados
-            is_test_mode: Se deve usar o modo de teste
-            
-        Returns:
-            Dicionário com os resultados do envio
-        """
-        try:
-            # Verificar configurações SMTP
-            log.info(f"Servidor SMTP: {self.config.smtp_config['host']}:{self.config.smtp_config['port']}")
-            log.info(f"Usuário SMTP: {self.config.smtp_config['username']}")
-            
-            # Determinar qual arquivo usar com base no modo
-            if is_test_mode:
-                test_emails_file = self.config.email_config.get("test_emails_file", "data/test_emails.csv")
-                csv_path = test_emails_file
-                log.info(f"MODO TESTE: Usando arquivo de teste {test_emails_file}")
-            else:
-                csv_path = csv_file or self.config.email_config["csv_file"]
-                log.info(f"MODO PRODUÇÃO: Usando arquivo principal {csv_path}")
-                
-            # Usar subject do arquivo email.yaml
-            email_subject = self.config.content_config.get("email", {}).get("subject", "Sem assunto")
-            log.info(f"Assunto do email: {email_subject}")
-            
-            # Sincronizar lista de descadastros antes de enviar (a menos que seja explicitamente ignorado)
-            # Só sincroniza no modo produção
-            if not skip_unsubscribed_sync and not is_test_mode:
-                unsubscribe_file = self.config.email_config.get("unsubscribe_file", "data/descadastros.csv")
-                self.sync_unsubscribed_emails(csv_path, unsubscribe_file)
-            
-            csv_reader = CSVReader(csv_path, self.config.email_config["batch_size"])
-            
-            # Ensure template has .html extension
-            if not template.endswith('.html'):
-                template += '.html'
-                
-            # Check if the template exists in the provided path or in templates/ directory
-            template_path = Path(template)
-            if not template_path.exists():
-                root_template_path = Path("templates") / template_path.name
-                if root_template_path.exists():
-                    template_path = root_template_path
-                else:
-                    raise FileNotFoundError(f"Template file not found: {template}")
-            else:
-                template_path = template_path.resolve()
-
-            total_records = csv_reader.total_records
-            if total_records == 0:
-                log.warning("Nenhum email para enviar!")
-                return {"status": "no_emails", "total_records": 0}
-                
-            log.info(f"Iniciando processo de envio de emails HTML...")
-            
-            # Verificar total de emails no arquivo
-            total_emails_in_file = len(csv_reader.df)
-            unsubscribed_count = 0
-            
-            # Verificar total de emails descadastrados se a coluna existir
-            if 'descadastro' in csv_reader.df.columns:
-                unsubscribed_count = len(csv_reader.df[csv_reader.df['descadastro'] == 'S'])
-                
-            already_sent = len(csv_reader.df[csv_reader.df['enviado'] == 'ok'])
-            failed_count = len(csv_reader.df[csv_reader.df['falhou'] == 'ok'])
-            
-            # Mostrar estatísticas
-            log.info(f"Total de emails na lista: {total_emails_in_file}")
-            log.info(f"Emails válidos para envio: {total_records}")
-            
-            if unsubscribed_count > 0:
-                log.info(f"Emails descadastrados (ignorados): {unsubscribed_count}")
-                
-            if already_sent > 0:
-                log.info(f"Emails já enviados: {already_sent}")
-                
-            if failed_count > 0:
-                log.info(f"Emails que falharam: {failed_count}")
-                
-            # Configurações
+            console.rule("[bold blue]Iniciando Processo de Envio de Emails[/bold blue]", style="blue")
             start_time = time.time()
             successful = 0
             failed = 0
-            current_record = 0
-            batch_delay = self.config.email_config.get("batch_delay", 60)
-            retry_attempts = self.config.email_config.get("retry_attempts", 5)
-            retry_delay = self.config.email_config.get("retry_delay", 60)
-            send_timeout = self.config.email_config.get("send_timeout", 10)
-            
-            # Carregar lista de emails descadastrados
-            unsubscribed = self.load_unsubscribed_emails()
-            
-            try:
-                # Configurar alarm para timeout
-                class TimeoutException(Exception):
-                    pass
-                
-                def timeout_handler(signum, frame):
-                    raise TimeoutException
-                
-                signal.signal(signal.SIGALRM, timeout_handler)
-                
-                for batch in csv_reader.get_batches():
-                    batch_successful = []  # Keep track of successful sends in this batch
-                    batch_failed = 0  # Count failures in this batch
-                    
-                    for recipient in batch:
-                        if recipient['email'].lower() in unsubscribed:
-                            # Emails descadastrados são silenciosamente ignorados
-                            continue
-                        
-                        attempts = 0
-                        while attempts < retry_attempts:
-                            try:
-                                log.info(f"📧 {recipient['email']}")
-                                signal.alarm(send_timeout)  # Set timeout for email sending
-                                
-                                # Processar o template
-                                html_content = self.process_email_template(template_path, recipient, email_subject)
-                                
-                                # Enviar o email
-                                self.send_batch([recipient], html_content, email_subject, is_html=True)
-                                log.info(f"✅ {recipient['email']}")
-                                
-                                signal.alarm(0)  # Reset the alarm
-                                successful += 1
-                                batch_successful.append(recipient['email'])  # Add to successful list
-                                break
-                            except TimeoutException:
-                                log.error(f"❌ {recipient['email']}")
-                                self.register_failed_email(recipient['email'], "Timeout ao enviar email")
-                                failed += 1
-                                batch_failed += 1
-                                break
-                            except Exception as e:
-                                attempts += 1
-                                if attempts >= retry_attempts:
-                                    log.error(f"❌ {recipient['email']}")
-                                    self.register_failed_email(recipient['email'], f"Erro após {retry_attempts} tentativas: {str(e)}")
-                                    failed += 1
-                                    batch_failed += 1
-                                else:
-                                    log.warning(f"⚠️ {recipient['email']} - Tentativa {attempts}/{retry_attempts}")
-                                    if retry_delay > 0:  # Only sleep if delay is greater than 0
-                                        time.sleep(retry_delay)
-                        
-                        signal.alarm(0)  # Ensure the alarm is reset after processing
-                        current_record += 1
-                        
-                        # Progress indication every 50 emails
-                        if current_record % 50 == 0:
-                            percentage = (current_record / total_records) * 100
-                            log.info(f"Progresso: {current_record}/{total_records} emails processados ({percentage:.1f}%)")
-                    
-                    # Mark all successful emails in this batch before delay
-                    for email in batch_successful:
-                        csv_reader.mark_as_sent(email)
-                    
-                    # Summary after each batch
-                    batch_size = len(batch_successful) + batch_failed
-                    batch_success_rate = (len(batch_successful) / batch_size) * 100 if batch_size > 0 else 0
-                    total_success_rate = (successful / current_record) * 100 if current_record > 0 else 0
-                    remaining = total_records - current_record
-                    
-                    log.info("\nResumo do lote atual:")
-                    log.info(f"✓ Enviados neste lote: {len(batch_successful)}")
-                    log.info(f"✗ Falhas neste lote: {batch_failed}")
-                    log.info(f"Taxa de sucesso do lote: {batch_success_rate:.1f}%")
-                    log.info("\nResumo geral:")
-                    log.info(f"✓ Total enviados: {successful}")
-                    log.info(f"✗ Total falhas: {failed}")
-                    log.info(f"Taxa de sucesso geral: {total_success_rate:.1f}%")
-                    log.info(f"Faltam: {remaining} emails\n")
-                    
-                    # Delay between batches
-                    if batch_delay > 0 and remaining > 0:  # Only sleep if delay is greater than 0 and there are more emails
-                        log.info(f"Aguardando {batch_delay} segundos antes do próximo lote...")
-                        time.sleep(batch_delay)
+            skipped_unsubscribed = 0
+            skipped_bounced = 0
+            skipped_invalid_email = 0
+            total_records_in_csv = 0
 
-            except KeyboardInterrupt:
-                log.warning("\nProcesso interrompido pelo usuário.")
-                log.info("Salvando progresso...")
-                # The CSVReader will handle the safe shutdown
-            finally:
-                # Reset signal handler
-                signal.alarm(0)
+
+            # Determine the CSV file to use
+            if csv_file:
+                actual_csv_file = csv_file
+            elif is_test_mode:
+                actual_csv_file = self.config.email_config.get("test_csv_file", "data/test_emails.csv")
+                console.print(f"Modo de teste: Usando CSV de teste: [cyan]{actual_csv_file}[/cyan]")
+            else:
+                actual_csv_file = self.config.email_config.get("csv_file")
+                console.print(f"Modo de produção: Usando CSV padrão: [cyan]{actual_csv_file}[/cyan]")
+
+            if not actual_csv_file:
+                console.print("[bold red]Erro: Caminho do arquivo CSV não especificado e não encontrado na configuração.[/bold red]")
+                raise ValueError("Caminho do arquivo CSV não especificado e não encontrado na configuração.")
+            
+            if not Path(actual_csv_file).exists():
+                console.print(f"[bold red]Erro: Arquivo CSV especificado não encontrado: {actual_csv_file}[/bold red]")
+                raise FileNotFoundError(f"Arquivo CSV especificado não encontrado: {actual_csv_file}")
+
+            # Configuration for sending process
+            pause_duration_after_attempts = self.config.email_config.get("batch_delay", 60)
+            retry_attempts_config = self.config.email_config.get("retry_attempts", 3)
+            retry_delay_config = self.config.email_config.get("retry_delay", 60)
+            send_timeout = self.config.email_config.get("send_timeout", 10) # seconds
+
+            # Load unsubscribed and bounced emails
+            unsubscribed = self.load_unsubscribed_emails() # Uses its own logging
+            active_bounced_set = self.load_bounced_emails(bounces_file_path) # Uses its own logging
+
+            csv_reader_instance = CSVReader(actual_csv_file, self.config.email_config.get("batch_size", 10))
+            email_subject = self.config.content_config.get("email", {}).get("subject", "Sem assunto")
+            console.print(f"Assunto do email: [bold magenta]'{email_subject}'[/bold magenta]")
+
+            if not template.endswith('.html'):
+                template += '.html'
+                
+            template_path_obj = Path(template)
+            if not template_path_obj.exists():
+                root_template_path = Path("templates") / template_path_obj.name
+                if root_template_path.exists():
+                    template_path_obj = root_template_path
+                    console.print(f"Template encontrado em: [green]templates/{template_path_obj.name}[/green]")
+                else:
+                    console.print(f"[bold red]Erro: Arquivo de template não encontrado: {template} (nem em templates/{template_path_obj.name})[/bold red]")
+                    raise FileNotFoundError(f"Template file not found: {template}")
+            else:
+                template_path_obj = template_path_obj.resolve()
+                console.print(f"Template encontrado em: [green]{template_path_obj}[/green]")
+
+            total_records_in_csv = csv_reader_instance.total_records
+            if total_records_in_csv == 0:
+                console.print(f"[bold yellow]Atenção: Nenhum registro encontrado no arquivo CSV: {actual_csv_file}. Nenhum email para enviar.[/bold yellow]")
+                if csv_reader_instance:
+                    csv_reader_instance.cleanup()
+                return {
+                    "report_file": "", "duration": 0.0, "avg_time_per_email": 0.0,
+                    "total_processed_from_csv": 0,
+                    "total_send_attempts": 0, "successful": 0, "failed": failed, # failed can be > 0 if all were invalid
+                    "skipped_unsubscribed": 0, "skipped_bounced": 0, "skipped_invalid_email": 0,
+                    "report": "Nenhum email encontrado para enviar no arquivo CSV fornecido.",
+                    "status": "no_emails_in_csv"
+                }
+            
+            console.print(f"Total de registros no CSV para processar: [bold]{total_records_in_csv}[/bold]")
+            
+            # Initialize Rich Progress Bar
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+                TimeElapsedColumn(),
+                console=console,
+                transient=False # Keep progress bar after completion
+            ) as progress:
+                
+                task_id = progress.add_task("[green]Enviando emails...", total=total_records_in_csv)
+                processed_recipients_count = 0
+
+                # Inner try for the loop, handling KeyboardInterrupt and SIGALRM
+                try:
+                    class TimeoutException(Exception):
+                        pass
+                    
+                    def timeout_handler(signum, frame):
+                        raise TimeoutException
+                    
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    
+                    total_batches = 0
+                    if csv_reader_instance.batch_size > 0:
+                        total_batches = math.ceil(total_records_in_csv / csv_reader_instance.batch_size)
+                    
+                    for batch_idx, batch_recipients in enumerate(csv_reader_instance.get_batches()):
+                        console.print(f"Processando lote {batch_idx + 1}/{int(total_batches)} (Tamanho: {len(batch_recipients)})...")
+                        
+                        for recipient_data in batch_recipients:
+                            processed_recipients_count +=1
+                            progress.update(task_id, advance=1, description=f"[green]Processando {processed_recipients_count}/{total_records_in_csv}")
+
+                            email_from_csv = recipient_data.get('email')
+
+                            # --- Start Validation and Normalization Block ---
+                            if pd.isna(email_from_csv):
+                                console.print(f"[yellow]Aviso: Email ausente (NaN) no CSV. Pulando.[/yellow]")
+                                failed += 1
+                                skipped_invalid_email += 1
+                                # Cannot mark as failed in CSVReader if email_from_csv is NaN
+                                continue
+                            
+                            if not isinstance(email_from_csv, str):
+                                console.print(f"[yellow]Aviso: Email não é uma string ('{email_from_csv}', tipo: {type(email_from_csv).__name__}). Pulando.[/yellow]")
+                                failed += 1
+                                skipped_invalid_email += 1
+                                # Cannot mark as failed in CSVReader if email_from_csv is not a string
+                                continue
+
+                            validated_email = email_from_csv.strip().lower()
+
+                            if not validated_email or '@' not in validated_email or validated_email == 'nan':
+                                console.print(f"[yellow]Aviso: Formato de email inválido: '{email_from_csv}'. Pulando e marcando como falha.[/yellow]")
+                                failed += 1
+                                skipped_invalid_email += 1
+                                try:
+                                    csv_reader_instance.mark_as_failed(validated_email, "Formato de email inválido")
+                                except Exception as e:
+                                    console.print(f"[red]Erro ao marcar email como falha: {str(e)}[/red]")
+                                continue
+                            # --- End Validation and Normalization Block ---
+
+                            # Check if bounced (using validated_email)
+                            if validated_email in active_bounced_set:
+                                console.print(f"[yellow]Pulando email com bounce ativo: {validated_email}[/yellow]")
+                                skipped_bounced += 1
+                                # Optionally mark in CSV if needed, e.g., csv_reader_instance.mark_as_bounced(validated_email)
+                                continue 
+                            
+                            # Check if unsubscribed (using validated_email)
+                            if validated_email in unsubscribed:
+                                console.print(f"[yellow]Pulando email descadastrado: {validated_email}[/yellow]")
+                                skipped_unsubscribed += 1
+                                # csv_reader_instance.mark_as_unsubscribed(validated_email) # Assuming CSVReader has this
+                                continue
+                            
+                            # If we reach here, the email is valid and not in bounce/unsubscribe lists.
+
+                            attempts = 0
+                            email_sent_successfully = False
+                            current_send_error = "N/A"
+
+                            while attempts < retry_attempts_config:
+                                try:
+                                    if attempts == 0:
+                                        console.print(f"Enviando para: [bold]📧 {validated_email}[/bold]")
+                                    else:
+                                        console.print(f"Tentativa {attempts+1}/{retry_attempts_config} para: [bold]📧 {validated_email}[/bold]")
+                                        
+                                    signal.alarm(send_timeout) # Set timeout for this send attempt
+                                    
+                                    html_content = self.process_email_template(str(template_path_obj), recipient_data, email_subject)
+                                    
+                                    self.send_batch([recipient_data], html_content, email_subject, is_html=True) # send_batch expects a list
+                                    
+                                    signal.alarm(0) # Reset the alarm
+                                    console.print(f"[green]✅ Email enviado para {validated_email}[/green]")
+                                    successful += 1
+                                    csv_reader_instance.mark_as_sent(validated_email)
+                                    email_sent_successfully = True
+                                    break # Exit retry loop on success
+
+                                except TimeoutException:
+                                    signal.alarm(0) # Reset alarm
+                                    current_send_error = f"Timeout ({send_timeout}s) ao enviar email"
+                                    console.print(f"[red]❌ Timeout ao enviar para {validated_email} (Tentativa {attempts + 1})[/red]")
+                                    attempts += 1
+                                    if attempts < retry_attempts_config and retry_delay_config > 0:
+                                        console.print(f"[yellow]Aguardando {retry_delay_config}s antes da próxima tentativa...[/yellow]")
+                                        time.sleep(retry_delay_config)
+                                
+                                except Exception as e:
+                                    signal.alarm(0) # Reset alarm
+                                    current_send_error = str(e)
+                                    console.print(f"[red]❌ Erro ao enviar para {validated_email} (Tentativa {attempts + 1}): {str(e)}[/red]")
+                                    attempts += 1
+                                    if attempts < retry_attempts_config and retry_delay_config > 0:
+                                        console.print(f"[yellow]Aguardando {retry_delay_config}s antes da próxima tentativa...[/yellow]")
+                                        time.sleep(retry_delay_config)
+                            
+                            if not email_sent_successfully:
+                                failed += 1
+                                try:
+                                    csv_reader_instance.mark_as_failed(validated_email, f"Falha após {retry_attempts_config} tentativas. Último erro: {current_send_error}")
+                                except Exception as mark_err:
+                                    console.print(f"[red]Erro ao marcar falha no CSV: {str(mark_err)}[/red]")
+                                console.print(f"[red]Falha definitiva ao enviar para {validated_email} após {retry_attempts_config} tentativas.[/red]")
+                        
+                        # Pause between batches if configured
+                        if batch_idx < total_batches - 1 and pause_duration_after_attempts > 0: # Don't pause after the last batch
+                            console.print(f"[blue]Pausa de {pause_duration_after_attempts} segundos entre lotes...[/blue]")
+                            time.sleep(pause_duration_after_attempts)
+                    
+                except KeyboardInterrupt:
+                    console.print("\n[bold yellow]Processo interrompido pelo usuário.[/bold yellow]")
+                    console.print("Salvando progresso...", style="yellow")
+                    # CSVReader handles saving progress in its __del__ or if explicitly called
+                finally:
+                    signal.alarm(0) # Disable any pending alarm
+                    progress.update(task_id, description="[blue]Processamento de emails concluído.[/blue]")
             
             end_time = time.time()
             
-            # Gerar relatório
-            report_data = self.generate_report(start_time, end_time, total_records, successful, failed)
+            # Ensure log handler is removed to prevent interference with other parts of the app or tests
+            log.removeHandler(rich_log_handler)
+            log.propagate = True
+
+
+            console.rule("[bold blue]Relatório de Envio[/bold blue]", style="blue")
+            report_data = self.generate_report(
+                start_time, end_time, 
+                total_processed_from_csv=total_records_in_csv, # Total records read from CSV
+                successful_sends=successful, 
+                failed_sends=failed,
+                skipped_unsubscribed=skipped_unsubscribed,
+                skipped_bounced=skipped_bounced,
+                skipped_invalid_email=skipped_invalid_email
+            )
+            
+            # Display summary with Rich
+            summary_table = Table(title="Resumo do Envio de Emails", show_header=True, header_style="bold magenta", box=ROUNDED)
+            summary_table.add_column("Métrica", style="dim", width=30)
+            summary_table.add_column("Valor")
+            
+            summary_table.add_row("Arquivo CSV Processado", actual_csv_file)
+            summary_table.add_row("Total de Registros no CSV", str(total_records_in_csv))
+            summary_table.add_row("Emails Válidos para Tentativa", str(total_records_in_csv - skipped_unsubscribed - skipped_bounced - skipped_invalid_email))
+            summary_table.add_row("[green]Enviados com Sucesso[/green]", f"[bold green]{successful}[/bold green]")
+            summary_table.add_row("[red]Falharam no Envio[/red]", f"[bold red]{failed}[/bold red]")
+            summary_table.add_row("[yellow]Pulados (Descadastrados)[/yellow]", str(skipped_unsubscribed))
+            summary_table.add_row("[yellow]Pulados (Bounces Ativos)[/yellow]", str(skipped_bounced))
+            summary_table.add_row("[yellow]Pulados (Email Inválido/Ausente)[/yellow]", str(skipped_invalid_email))
+            summary_table.add_row("Duração Total", report_data.get("duration_formatted", f"{end_time - start_time:.2f}s"))
+            summary_table.add_row("Relatório Salvo em", report_data.get("report_file", "N/A"))
+            
+            console.print(summary_table)
+            
+            if csv_reader_instance: 
+                csv_reader_instance.cleanup() # Remove .bak file on successful completion
             
             return report_data
         
+        except FileNotFoundError as fnf_error:
+            console.print(f"[bold red]Erro de arquivo não encontrado: {str(fnf_error)}[/bold red]")
+            # Ensure log handler is removed
+            if 'rich_log_handler' in locals() and rich_log_handler in log.handlers:
+                log.removeHandler(rich_log_handler)
+                log.propagate = True
+            # No cleanup of CSVReader if it wasn't initialized or if the error is critical before its use.
+            # If CSVReader was initialized, its .bak should be preserved.
+            raise # Re-raise to be caught by CLI
+        except ValueError as val_error:
+            console.print(f"[bold red]Erro de valor: {str(val_error)}[/bold red]")
+            if 'rich_log_handler' in locals() and rich_log_handler in log.handlers:
+                log.removeHandler(rich_log_handler)
+                log.propagate = True
+            raise
         except Exception as e:
-            log.error(f"Erro no processo de envio de emails: {str(e)}")
-            error_message = str(e)
-            
-            # Marcar todos os emails como falhados
-            try:
-                # Tenta obter os emails do CSV reader
-                if 'csv_reader' in locals() and csv_reader is not None:
-                    for batch in csv_reader.get_batches():
-                        for recipient in batch:
-                            self.register_failed_email(recipient['email'], f"Falha de conexão com o servidor: {error_message}")
-                            log.error(f"Marcando {recipient['email']} como falha devido a erro: {error_message}")
-            except Exception as inner_e:
-                log.error(f"Erro ao registrar emails como falha: {str(inner_e)}")
-            
-            # Gerar um relatório simplificado para evitar o erro 'report_file'
-            report_file = f"email_report_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            report_path = os.path.join("reports", report_file)
-            
-            # Garantir que o diretório de relatórios existe
-            os.makedirs("reports", exist_ok=True)
-            
-            # Criar um relatório mínimo
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(f"Relatório de Erro\n")
-                f.write(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
-                f.write("-----------------------------------------\n")
-                f.write(f"Erro: {error_message}\n")
-            
-            return {
-                "status": "error", 
-                "error": error_message,
-                "report_file": report_file,
-                "report": f"Erro: {error_message}"
-            }
+            console.print_exception(show_locals=True)
+            console.print(f"[bold red]Erro CRÍTICO no processo de envio de emails: {str(e)}[/bold red]")
+            if 'rich_log_handler' in locals() and rich_log_handler in log.handlers:
+                log.removeHandler(rich_log_handler)
+                log.propagate = True
+            # CSVReader's .bak should be preserved if it was initialized.
+            raise

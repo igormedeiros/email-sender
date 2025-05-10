@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<p>Ocorreu um erro ao processar sua solicitação.</p>
+
+<div class="highlight">
+    <p>{{ error_message }}</p>
+</div>
+
+<p>Por favor, tente novamente ou entre em contato com nossa equipe:</p>
+<p><a href="mailto:contato@treineinsite.com.br">contato@treineinsite.com.br</a></p>
+{% endblock %}

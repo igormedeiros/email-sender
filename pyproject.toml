@@ -1,0 +1,68 @@
+[project]
+name            = "email-sender"
+version         = "0.1.0"
+description     = "Email sender service for automated notifications"
+readme          = "README.md"
+requires-python = ">=3.12"
+
+# (deixa vazio porque vamos instalar tudo via grupos)
+dependencies = [
+    "pandas>=2.2.3",
+    "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.2",
+    "typer>=0.15.3",
+]
+
+# ————————————————————————————
+# Grupos de dependência (PEP 735)
+# ————————————————————————————
+[dependency-groups]
+# tudo que vai pra produção
+default = [
+    "uvicorn[standard]",
+    "fastapi",
+    "pandas>=2.2.3",
+    "pyyaml>=6.0.2",
+    "typer>=0.15.3",
+    "rich>=13.0.0",
+    "python-dotenv>=1.1.0",
+    "flask>=3.0",
+    "gunicorn>=22.0",
+]
+
+# ferramentas de desenvolvimento/teste
+dev = [
+    "pytest>=8.2",
+    "black>=24.3",
+    "isort>=5.13",
+    "mypy>=1.10",
+]
+
+# ————————————————————————————
+# Build backend
+# ————————————————————————————
+[build-system]
+requires      = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ————————————————————————————
+# Configs de tooling
+# ————————————————————————————
+[tool.setuptools]
+packages     = ["email_sender"]
+package-dir  = {"" = "src"}
+
+[tool.black]
+line-length    = 88
+target-version = ["py312"]
+include        = '\.pyi?$'
+
+[tool.isort]
+profile            = "black"
+multi_line_output  = 3
+
+[tool.mypy]
+python_version         = "3.12"
+warn_return_any        = true
+warn_unused_configs    = true
+disallow_untyped_defs  = true
