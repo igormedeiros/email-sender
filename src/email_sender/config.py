@@ -77,6 +77,9 @@ class Config:
         if "smtp" in self.config:
             config_defaults["SMTP_USERNAME"] = self.config["smtp"].get("username", "")
             config_defaults["SMTP_PASSWORD"] = self.config["smtp"].get("password", "")
+        if "postgres" in self.config: # Assuming postgres config might be in yaml too
+            config_defaults["POSTGRES_USER"] = self.config["postgres"].get("user", "")
+            config_defaults["POSTGRES_PASSWORD"] = self.config["postgres"].get("password", "")
         
         # Criar o gerenciador de segredos
         self.secrets_manager = SecretsManager(
@@ -172,4 +175,25 @@ class Config:
         timeout_config = self.rest_config.get("timeout", {})
         return {
             "request": int(timeout_config.get("request", 60))
+        }
+
+    @property
+    def postgres_config(self) -> dict:
+        # Obter credenciais do gerenciador de segredos
+        # Assuming a method get_postgres_credentials will be added to SecretsManager
+        # For now, we'll mock its expected behavior for development of this part
+        # postgres_credentials = self.secrets_manager.get_postgres_credentials()
+        
+        # Placeholder for fetched credentials until SecretsManager is updated
+        # In a real scenario, these would come from self.secrets_manager
+        pg_user_from_secrets = self.secrets_manager.get_secret("POSTGRES_USER", self.config.get("postgres", {}).get("user"))
+        pg_password_from_secrets = self.secrets_manager.get_secret("POSTGRES_PASSWORD", self.config.get("postgres", {}).get("password"))
+
+        return {
+            "host": os.getenv("POSTGRES_HOST", self.config.get("postgres", {}).get("host", "localhost")),
+            "port": int(os.getenv("POSTGRES_PORT", self.config.get("postgres", {}).get("port", 5432))),
+            "user": pg_user_from_secrets,
+            "password": pg_password_from_secrets,
+            "db": os.getenv("POSTGRES_DB", self.config.get("postgres", {}).get("db", "email_service")),
+            "unsubscribe_table": os.getenv("POSTGRES_UNSUBSCRIBE_TABLE", self.config.get("postgres", {}).get("unsubscribe_table", "unsubscribed_users"))
         }

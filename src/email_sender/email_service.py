@@ -21,6 +21,7 @@ import math
 from .config import Config
 from .utils.csv_reader import CSVReader
 from .email_templating import TemplateProcessor
+from .db_utils import get_db_connection, get_unsubscribed_emails as db_get_unsubscribed_emails
 from .reporting import ReportGenerator
 from .smtp_manager import SmtpManager
 
@@ -86,26 +87,36 @@ class EmailService:
             # Re-raise the exception so the CLI can catch it and report
             raise
 
-    def load_unsubscribed_emails(self, unsubscribe_file: Optional[str] = None) -> set:
+    def load_unsubscribed_emails(self) -> set:
         """
-        Carrega emails da lista de descadastro.
+        Carrega emails da lista de descadastro do banco de dados.
         Retorna um set de emails em lower case.
         """
-        unsubscribe_path = Path(unsubscribe_file or self.config.email_config.get("unsubscribe_file", "data/descadastros.csv"))
-        unsubscribed_emails = set()
-        if unsubscribe_path.exists():
-            try:
-                df_unsubscribed = pd.read_csv(unsubscribe_path, dtype=str)
-                if "email" in df_unsubscribed.columns:
-                    unsubscribed_emails = set(df_unsubscribed["email"].str.lower().dropna().unique())
-                    log.info(f"Carregados {len(unsubscribed_emails)} emails da lista de descadastro: {unsubscribe_path}")
-                else:
-                    log.warning(f"Coluna 'email' não encontrada em {unsubscribe_path}. Nenhum email de descadastro carregado.")
-            except Exception as e:
-                log.error(f"Erro ao carregar arquivo de descadastro {unsubscribe_path}: {e}")
-        else:
-            log.warning(f"Arquivo de descadastro {unsubscribe_path} não encontrado. Nenhum email de descadastro carregado.")
-        return unsubscribed_emails
+        unsubscribed_emails_set = set()
+        conn = None
+        try:
+            # Get table name from postgres_config
+            # Using .get for safety, though direct access was in prompt, this is more robust
+            table_name = self.config.postgres_config.get('POSTGRES_UNSUBSCRIBE_TABLE', 'unsubscribed_users')
+            if not table_name: # Should not happen if config is well-defined
+                log.error("PostgreSQL unsubscribe table name not configured.")
+                return unsubscribed_emails_set
+
+            conn = get_db_connection(self.config)
+            if conn:
+                email_list = db_get_unsubscribed_emails(conn, table_name)
+                unsubscribed_emails_set = {email.lower() for email in email_list if isinstance(email, str)}
+                log.info(f"Carregados {len(unsubscribed_emails_set)} emails da lista de descadastro (tabela: {table_name}).")
+            else:
+                log.error("Falha ao obter conexão com o banco de dados para carregar emails descadastrados.")
+        except AttributeError:
+            log.error("Erro ao acessar postgres_config. Certifique-se de que está configurado corretamente.")
+        except Exception as e:
+            log.error(f"Erro ao carregar emails descadastrados do banco de dados: {e}")
+        finally:
+            if conn:
+                conn.close()
+        return unsubscribed_emails_set
 
     def load_bounced_emails(self, bounces_file: Optional[str] = None) -> set:
         """
@@ -128,16 +139,16 @@ class EmailService:
             log.warning(f"Arquivo de bounces {bounces_path} não encontrado. Nenhum email de bounce carregado.")
         return bounced_emails
 
-    def sync_unsubscribed_emails(self, csv_file: str, unsubscribe_file: Optional[str] = None) -> int:
+    def sync_unsubscribed_emails(self, csv_file: str) -> int:
         """
         Marca emails descadastrados no arquivo CSV principal.
         Adiciona/atualiza a coluna 'unsubscribed' para True para emails encontrados na lista de descadastro.
         Retorna o número de emails atualizados.
         """
-        log.info(f"Iniciando sincronização de descadastrados para {csv_file} usando {unsubscribe_file or 'config default'}")
-        unsubscribed_set = self.load_unsubscribed_emails(unsubscribe_file)
+        log.info(f"Iniciando sincronização de descadastrados para {csv_file} usando banco de dados.")
+        unsubscribed_set = self.load_unsubscribed_emails() # Updated call
         if not unsubscribed_set:
-            log.info("Nenhum email na lista de descadastro. Nenhuma sincronização necessária.")
+            log.info("Nenhum email na lista de descadastro do banco de dados. Nenhuma sincronização necessária.")
             return 0
 
         try:

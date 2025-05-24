@@ -28,6 +28,7 @@ default = [
     "python-dotenv>=1.1.0",
     "flask>=3.0",
     "gunicorn>=22.0",
+    "psycopg2-binary>=2.9", # Added PostgreSQL driver
 ]
 
 # ferramentas de desenvolvimento/teste
