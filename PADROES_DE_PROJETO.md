@@ -25,6 +25,14 @@ Este documento define como vamos construir e evoluir o projeto.
 │   ├── conftest.py           # bloqueio de rede global e fixtures comuns
 │   └── unit/                 # testes unitários por módulo
 └── PADROES_DE_PROJETO.md
+├── sql/                     # consultas SQL organizadas (extraídas de automações/workflows)
+│   ├── contacts/
+│   ├── messages/
+│   ├── leads/
+│   ├── tags/
+│   └── events/
+└── .github/
+    └── copilot-instructions.md  # instruções ao Copilot/IA
 ```
 
 - Apenas `src/` e `tests/` na raiz. Evitar diretórios paralelos desnecessários.
@@ -196,3 +204,13 @@ email-sender = "email_sender.cli:app"
 - Funções puras no domínio facilitam testes
 - Não propagar tipos dinâmicos sem necessidade; anotar assinaturas públicas
 - Evitar efeitos colaterais implícitos; explicitar dependências via injeção (ports/adapters)
+
+## Organização de SQL e Prompts (Regra)
+- **Não** misturar consultas SQL ou prompts de IA dentro do código Python.
+- Centralizar SQL em `sql/` com subpastas temáticas (`contacts/`, `messages/`, `events/`, `leads/`, `tags/`).
+  - Cada arquivo `.sql` deve começar com um cabeçalho comentando a origem (ex.: `Source: n8n/<workflow>.json -> <node>`), variáveis de template e propósito.
+- Prompts de IA (quando existirem) devem ser versionados fora do código Python, idealmente em:
+  - `.github/business_rules.prompt.md` para regras de negócio
+  - `.github/copilot-instructions.md` para instruções de desenvolvimento/IA
+  - `prompts/` (se necessário) para prompts operacionais, mantendo-os referenciados por caminho.
+- O código Python deve carregar SQL/Prompts por caminho (injetado via config) e nunca como string embedada.
