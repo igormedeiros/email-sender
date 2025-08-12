@@ -6,8 +6,8 @@
 -- $5: event_id text
 INSERT INTO tbl_messages (subject, internal_name, event_id)
 VALUES (
-    $1,
-    CONCAT('[', $2, ' ', $3, '-', $4, '] Envio ', COALESCE((SELECT MAX(id) + 1 FROM tbl_messages), 1)),
-    $5
+    $1::text,
+    CONCAT('[', $2::text, ' ', $3::text, '-', $4::text, '] Envio ', COALESCE((SELECT MAX(id) + 1 FROM tbl_messages), 1)),
+    CASE WHEN ($5)::text ~ '^[0-9]+' THEN ($5)::int ELSE NULL END
 )
 RETURNING id, subject, processed;

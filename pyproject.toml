@@ -12,12 +12,17 @@ dependencies = [
     "typer>=0.15.3",
     "rich>=13.0.0",
     "psycopg[binary]>=3.2",
+    "questionary>=2.0.1",
+    "prompt_toolkit>=3.0.43",
+    "pyfiglet>=0.8.post1",
+    "requests>=2.32.0",
+    "langchain>=0.2.10",
+    "langchain-google-genai>=1.0.5",
 ]
 
 # Entry points de CLI
 [project.scripts]
-treineinsite = "email_sender.cli:app"
-email-sender = "email_sender.cli:app"
+treineinsite-sendemails = "email_sender.cli:main"
 
 # ————————————————————————————
 # Grupos de dependência (PEP 735)
@@ -33,11 +38,14 @@ default = [
     "python-dotenv>=1.1.0",
     "flask>=3.0",
     "gunicorn>=22.0",
+    "prompt_toolkit>=3.0.43",
+    "pyfiglet>=0.8.post1",
 ]
 
 # ferramentas de desenvolvimento/teste
 dev = [
     "pytest>=8.2",
+    "pytest-cov>=5.0",
     "black>=24.3",
     "isort>=5.13",
     "mypy>=1.10",
@@ -54,12 +62,8 @@ build-backend = "setuptools.build_meta"
 # Configs de tooling
 # ————————————————————————————
 [tool.setuptools]
-packages = [
-    "email_sender",
-]
-package-dir = {
-    "email_sender" = "src/email_sender",
-}
+packages = ["email_sender"]
+package-dir = {email_sender = "src/email_sender"}
 
 [tool.black]
 line-length    = 88
@@ -75,3 +79,19 @@ python_version         = "3.12"
 warn_return_any        = true
 warn_unused_configs    = true
 disallow_untyped_defs  = true
+
+[tool.pytest.ini_options]
+addopts = "-q --cov=src/email_sender --cov-report=term-missing --cov-fail-under=85"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/email_sender"]
+omit = [
+  "src/email_sender/api/*",
+  "src/email_sender/rest_api.py",
+  "src/email_sender/controller_rest.py",
+  "src/email_sender/scheduler_*",
+  "src/email_sender/daemon_utils.py",
+  "src/email_sender/unsubscribe_app.py",
+  "src/email_sender/cli.py",
+]

@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from typing import Optional, Iterable
 
+try:
+    from pyfiglet import Figlet  # type: ignore
+except Exception:  # pragma: no cover - fallback if not installed
+    Figlet = None  # type: ignore
+
 from rich.console import Console
-from rich.panel import Panel
 from rich.text import Text
 from rich.progress import (
     Progress,
@@ -26,35 +30,35 @@ def get_console() -> Console:
 
 
 def print_banner(ascii_art: str, subtitle: Optional[str] = None) -> None:
-    """Prints a consistent banner panel with optional subtitle.
+    """Cursor/Claude/Opencode-style banner with Treineinsite in light blue.
 
-    - Uses cyan border and bold cyan ASCII text
-    - Subtitle centered below the banner
+    - Gradient-like feel using shades of cyan/blue
+    - Clean single-line rule beneath
     """
     console = get_console()
 
-    ascii_text = Text(ascii_art.rstrip("\n"), style="bold cyan")
-    console.print(Panel.fit(ascii_text, border_style="cyan", padding=(1, 2)))
+    # Use light blue (cyan) for the wordmark, without any box/border
+    ascii_text = Text(ascii_art.rstrip("\n"), style="bold bright_cyan")
+    console.print(ascii_text)
 
     if subtitle:
-        console.print(Text(subtitle, style="bold white"), justify="center")
+        console.print(Text(subtitle, style="bright_white"), justify="center")
 
-    console.rule(style="cyan")
+    console.rule(style="bright_cyan")
 
 
 def build_treineinsite_ascii_art() -> str:
-    """Returns a modern ASCII wordmark inspired by opencode-style terminals."""
-    return (
-        "\n"
-        "  _______              _           _         _     _       _       _        \n"
-        " |__   __|            | |         (_)       | |   (_)     | |     | |       \n"
-        "    | | _ __ ___  __ _| |_ ___ ___ _  ___   | |_   _  __ _| | __ _| |_ ___  \n"
-        "    | || '__/ _ \\/ _` | __/ __/ __| |/ __|  | __| | |/ _` | |/ _` | __/ _ \\ \n"
-        "    | || | |  __/ (_| | |_\\__ \\__ \\ | (__   | |_  | | (_| | | (_| | ||  __/ \n"
-        "    |_|_|  \\___|\\__,_|\\__|___/___/_|\\___|   \\__| |_|\\__, |_|\\__,_|\\__\\___| \n"
-        "                                                     __/ |                      \n"
-        "                                                    |___/                       \n"
-    )
+    """Returns an ASCII art banner for 'TREINEINSITE' using pyfiglet (slant)."""
+    text = "TREINEINSITE"
+    if Figlet is not None:
+        try:
+            fig = Figlet(font="slant", width=120)
+            art = fig.renderText(text)
+            return "\n" + art.rstrip("\n") + "\n"
+        except Exception:
+            pass
+    # Fallback literal
+    return f"\n{text}\n"
 
 
 def section(title: str) -> None:

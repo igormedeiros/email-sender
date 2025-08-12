@@ -35,86 +35,81 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 ## 🛠️ Requisitos
 
 - Python 3.12+
-- pip (gerenciador de pacotes Python)
+- uv (gerenciador de dependências rápido)
+  - Instalação: veja as instruções em `https://docs.astral.sh/uv/` (Linux/Mac/Windows)
 - Acesso a um servidor SMTP
 
 ## 🚀 Como usar (rápido)
 
-Após instalar e configurar, os comandos principais via CLI são:
+Todos os comandos usam apenas um executável: `treineinsite-sendemails` (via uv). Após instalar e configurar, use:
 
 - Testar SMTP:
   ```bash
-  email-sender test-smtp -c config/config.yaml --content config/email.yaml -d
-  # Alternativa sem entrypoint: python -m email_sender.controller_cli test-smtp -c config/config.yaml --content config/email.yaml -d
+  uv run treineinsite-sendemails test-smtp -c config/config.yaml --content config/email.yaml -d
   ```
 
 - Enviar emails em modo de teste (usa `config/email.yaml` para `email.template_path`):
   ```bash
-  email-sender send-emails --mode=test --content config/email.yaml
-  # Opcional: sobrescrever CSV
-  email-sender send-emails --mode=test --csv-file data/test_emails.csv --content config/email.yaml
+  uv run treineinsite-sendemails send-emails --mode=test --content config/email.yaml
   ```
 
 - Enviar emails em produção:
   ```bash
-  email-sender send-emails --mode=production --content config/email.yaml
-  # Opcional: sobrescrever CSV e arquivo de bounces
-  email-sender send-emails --mode=production --csv-file data/emails_geral.csv --bounces-file data/bounces.csv --content config/email.yaml
+  uv run treineinsite-sendemails send-emails --mode=production --content config/email.yaml
   ```
 
-- Sincronizar descadastros com o CSV principal:
+- Sincronizar descadastros com o CSV principal (legado, uso local):
   ```bash
-  email-sender sync-unsubscribed-command --csv-file data/emails_geral.csv --unsubscribe-file data/descadastros.csv
+  uv run treineinsite-sendemails sync-unsubscribed-command --csv-file data/emails_geral.csv --unsubscribe-file data/descadastros.csv
   ```
 
-- Sincronizar bounces com o CSV principal:
+- Sincronizar bounces com o CSV principal (legado, uso local):
   ```bash
-  email-sender sync-bounces-command --csv-file data/emails_geral.csv --bounces-file data/bounces.csv
+  uv run treineinsite-sendemails sync-bounces-command --csv-file data/emails_geral.csv --bounces-file data/bounces.csv
   ```
 
-- Limpar flags de envio no CSV:
+- Limpar flags de envio no CSV (legado, uso local):
   ```bash
-  email-sender clear-sent-flags --csv-file data/emails_geral.csv
+  uv run treineinsite-sendemails clear-sent-flags --csv-file data/emails_geral.csv
   ```
 
-- Remover duplicados por coluna (padrão `email`):
+- Remover duplicados por coluna (legado, uso local):
   ```bash
-  email-sender remove-duplicates data/emails_geral.csv --column email --keep first
+  uv run treineinsite-sendemails remove-duplicates data/emails_geral.csv --column email --keep first
   ```
 
 - Iniciar API REST:
   ```bash
-  python -m email_sender.rest_api
+  uv run python -m email_sender.rest_api
   ```
 
 Para ajuda geral:
 ```bash
-email-sender --help
-python -m email_sender.controller_cli --help
+uv run treineinsite-sendemails --help
 ```
 
-## ⚙️ Instalação
+## ⚙️ Instalação (com uv)
 
 1. Clone o repositório:
 
-```bash
-git clone <repository-url>
-cd email-sender
-```
+   ```bash
+   git clone <repository-url>
+   cd email-sender
+   ```
 
-2. Crie e ative um ambiente virtual:
+2. Sincronize dependências com uv (cria o ambiente automaticamente):
 
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate   # Windows
-```
+   ```bash
+   uv sync
+   ```
 
-3. Instale as dependências:
+3. Execute a CLI (exemplos):
 
-```bash
-pip install -e .
-```
+   ```bash
+   uv run treineinsite-sendemails --help
+   uv run treineinsite-sendemails test-smtp -c config/config.yaml --content config/email.yaml -d
+   uv run treineinsite-sendemails send-emails --mode=test --content config/email.yaml
+   ```
 
 ## 📝 Configuração
 

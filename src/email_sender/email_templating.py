@@ -70,7 +70,29 @@ class TemplateProcessor:
 
         # Event specific placeholders from self.content_config
         evento_config = self.content_config.get("evento", {})
-        html_content = html_content.replace("{link_evento}", evento_config.get("link", ""))
+        # Se houver cupom configurado, garantir que o link do evento carregue o cupom (param 'd')
+        try:
+            from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+            link_raw = str(evento_config.get("link", ""))
+            coupon_code = str(evento_config.get("cupom") or "")
+            if link_raw:
+                parts = urlparse(link_raw)
+                query_map = dict(parse_qsl(parts.query, keep_blank_values=True))
+                # Somente forçar o cupom se fornecido
+                if coupon_code:
+                    query_map["d"] = coupon_code
+                new_query = urlencode(query_map, doseq=True)
+                link_with_coupon = urlunparse((parts.scheme, parts.netloc, parts.path, parts.params, new_query, parts.fragment))
+            else:
+                link_with_coupon = link_raw
+        except Exception:
+            # Fallback simples caso parsing falhe
+            if link_raw:
+                joiner = "&" if ("?" in link_raw) else "?"
+                link_with_coupon = f"{link_raw}{joiner}d={coupon_code}" if coupon_code else link_raw
+            else:
+                link_with_coupon = ""
+        html_content = html_content.replace("{link_evento}", link_with_coupon)
         html_content = html_content.replace("{data_evento}", evento_config.get("data", ""))
         html_content = html_content.replace("{cidade}", evento_config.get("cidade", ""))
         html_content = html_content.replace("{local}", evento_config.get("local", ""))
