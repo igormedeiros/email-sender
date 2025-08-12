@@ -55,10 +55,18 @@ class EmailService:
     def _maybe_generate_subject(self, existing_subject: str) -> str:
         # Se já há assunto definido e não está marcado para auto, mantenha
         try:
+            import os as _os
             subject_raw = (existing_subject or "").strip()
-            # Permite forçar geração quando subject == "auto" ou "genai"
-            force_auto = subject_raw.lower() in {"auto", "genai"}
-            if subject_raw and not force_auto:
+            subject_norm = subject_raw.lower().strip()
+            # Permite forçar geração quando subject == "auto" ou "genai" ou por env var
+            force_auto = subject_norm in {"auto", "genai"}
+            env_force = (_os.environ.get("GENAI_SUBJECT") or _os.environ.get("SUBJECT_AUTOGEN") or "").lower() in {"1","true","yes","on"}
+            # Tratar placeholders comuns como sinal para autogerar
+            placeholder_subjects = {
+                "assunto de exemplo", "sem assunto", "assunto", "subject", "exemplo", "example subject"
+            }
+            looks_like_placeholder = subject_norm in placeholder_subjects
+            if subject_raw and not (force_auto or env_force or looks_like_placeholder):
                 return subject_raw
 
             # Preparar contexto do evento
@@ -70,8 +78,6 @@ class EmailService:
                 f"Dados do evento (JSON): {evento_cfg}\n"
             )
 
-            api_key = None
-            import os as _os
             api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
             model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
             if not api_key:
@@ -93,7 +99,10 @@ class EmailService:
             except Exception:
                 return self._build_subject_fallback()
         except Exception:
-            return subject_raw if (existing_subject and existing_subject.strip()) else self._build_subject_fallback()
+            try:
+                return subject_raw if (existing_subject and existing_subject.strip()) else self._build_subject_fallback()
+            except Exception:
+                return self._build_subject_fallback()
 
     def send_email_to_test_recipient(self, template: str) -> Dict[str, Any]:
         """Envio simplificado para AMBIENTE de teste: pega 1 destinatário de teste via SQL e envia.

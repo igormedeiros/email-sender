@@ -70,6 +70,45 @@ class TemplateProcessor:
 
         # Event specific placeholders from self.content_config
         evento_config = self.content_config.get("evento", {})
+        
+        # Helper: format raw ISO-like date range to PT-BR human text
+        def _parse_ymd(date_str: str):
+            try:
+                m = re.search(r"(\d{4})-(\d{2})-(\d{2})", date_str or "")
+                if not m:
+                    return None, None, None
+                return int(m.group(1)), int(m.group(2)), int(m.group(3))
+            except Exception:
+                return None, None, None
+
+        def _format_ptbr_date_range_from_str(raw: str) -> str:
+            if not raw:
+                return ""
+            meses = [
+                "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+                "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+            ]
+            # tenta separar duas partes por ' a '
+            parts = [p.strip() for p in re.split(r"\s+a\s+", raw)]
+            if len(parts) == 1:
+                y, m, d = _parse_ymd(parts[0])
+                if all(v is not None for v in (y, m, d)):
+                    return f"{d} de {meses[m-1]}"
+                return raw
+            else:
+                y1, m1, d1 = _parse_ymd(parts[0])
+                y2, m2, d2 = _parse_ymd(parts[1])
+                if not all(v is not None for v in (y1, m1, d1)):
+                    return raw
+                if not all(v is not None for v in (y2, m2, d2)):
+                    y2, m2, d2 = y1, m1, d1
+                if y1 == y2:
+                    if m1 == m2:
+                        if d1 == d2:
+                            return f"{d1} de {meses[m1-1]}"
+                        return f"{d1} e {d2} de {meses[m1-1]}"
+                    return f"{d1} de {meses[m1-1]} a {d2} de {meses[m2-1]}"
+                return f"{d1} de {meses[m1-1]} de {y1} a {d2} de {meses[m2-1]} de {y2}"
         # Se houver cupom configurado, garantir que o link do evento carregue o cupom (param 'd')
         try:
             from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
@@ -93,7 +132,9 @@ class TemplateProcessor:
             else:
                 link_with_coupon = ""
         html_content = html_content.replace("{link_evento}", link_with_coupon)
-        html_content = html_content.replace("{data_evento}", evento_config.get("data", ""))
+        data_raw = str(evento_config.get("data", "") or "")
+        data_human = _format_ptbr_date_range_from_str(data_raw)
+        html_content = html_content.replace("{data_evento}", data_human)
         html_content = html_content.replace("{cidade}", evento_config.get("cidade", ""))
         html_content = html_content.replace("{local}", evento_config.get("local", ""))
 
