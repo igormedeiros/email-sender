@@ -41,52 +41,28 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 
 ## 🚀 Como usar (rápido)
 
-Todos os comandos usam apenas um executável: `treineinsite-sendemails` (via uv). Após instalar e configurar, use:
-
-- Testar SMTP:
+- Interativo (recomendado):
   ```bash
-  uv run treineinsite-sendemails test-smtp -c config/config.yaml --content config/email.yaml -d
+  uv run treineinsite-sendemails
   ```
+  - Setas para navegar; Enter para selecionar; TAB alterna `ENVIRONMENT` entre `test` e `production`.
+  - Se o prompt/lista ficarem “colados” em uma linha, rode sem buffer:
+    ```bash
+    uv run -u treineinsite-sendemails
+    # ou
+    PYTHONUNBUFFERED=1 uv run treineinsite-sendemails
+    ```
 
-- Enviar emails em modo de teste (usa `config/email.yaml` para `email.template_path`):
+- Enviar emails sem menu (modo avançado):
   ```bash
-  uv run treineinsite-sendemails send-emails --mode=test --content config/email.yaml
-  ```
-
-- Enviar emails em produção:
-  ```bash
-  uv run treineinsite-sendemails send-emails --mode=production --content config/email.yaml
-  ```
-
-- Sincronizar descadastros com o CSV principal (legado, uso local):
-  ```bash
-  uv run treineinsite-sendemails sync-unsubscribed-command --csv-file data/emails_geral.csv --unsubscribe-file data/descadastros.csv
-  ```
-
-- Sincronizar bounces com o CSV principal (legado, uso local):
-  ```bash
-  uv run treineinsite-sendemails sync-bounces-command --csv-file data/emails_geral.csv --bounces-file data/bounces.csv
-  ```
-
-- Limpar flags de envio no CSV (legado, uso local):
-  ```bash
-  uv run treineinsite-sendemails clear-sent-flags --csv-file data/emails_geral.csv
-  ```
-
-- Remover duplicados por coluna (legado, uso local):
-  ```bash
-  uv run treineinsite-sendemails remove-duplicates data/emails_geral.csv --column email --keep first
+  uv run python -m email_sender.controller_cli send-emails --mode=test --content config/email.yaml
+  uv run python -m email_sender.controller_cli send-emails --mode=production --content config/email.yaml
   ```
 
 - Iniciar API REST:
   ```bash
   uv run python -m email_sender.rest_api
   ```
-
-Para ajuda geral:
-```bash
-uv run treineinsite-sendemails --help
-```
 
 ## ⚙️ Instalação (com uv)
 
@@ -106,9 +82,11 @@ uv run treineinsite-sendemails --help
 3. Execute a CLI (exemplos):
 
    ```bash
-   uv run treineinsite-sendemails --help
-   uv run treineinsite-sendemails test-smtp -c config/config.yaml --content config/email.yaml -d
-   uv run treineinsite-sendemails send-emails --mode=test --content config/email.yaml
+   # Modo interativo (menu)
+   uv run treineinsite-sendemails
+
+   # Modo não interativo (Typer)
+   uv run python -m email_sender.controller_cli send-emails --mode=test --content config/email.yaml
    ```
 
 ## 📝 Configuração

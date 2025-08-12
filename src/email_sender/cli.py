@@ -358,7 +358,8 @@ def _update_event_from_sympla() -> None:
     events = events[:3]
 
     # 2) Escolha interativa
-    typer.echo("\nSelecione o evento a ativar:")
+    # Imprime a lista completa de uma vez, garantindo quebras de linha
+    lines: List[str] = ["", "Selecione o evento a ativar:"]
     def _infer_sympla_code(ev: dict) -> str | None:
         url_val = ev.get("url") or ev.get("event_link") or ""
         if not url_val:
@@ -390,7 +391,8 @@ def _update_event_from_sympla() -> None:
         ev_id = _infer_sympla_code(ev) or ev.get("id") or ev.get("eventId")
         short_title = _format_short_title(ev)
         ev_start = ev.get("start_date") or ev.get("startDate")
-        typer.echo(f"  [{idx+1}] {short_title} | {ev_start} | {ev_id}")
+        lines.append(f"  [{idx+1}] {short_title} | {ev_start} | {ev_id}")
+    typer.echo("\n".join(lines) + "\n")
     raw_choice = typer.prompt("Número do evento", default="1")
     try:
         choice_idx = max(1, min(len(events), int(str(raw_choice).strip()))) - 1
