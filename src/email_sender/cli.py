@@ -408,7 +408,32 @@ def _update_event_from_sympla() -> None:
     addr = selected.get("address") if isinstance(selected.get("address"), dict) else {}
     city = (addr.get("city") if isinstance(addr, dict) else None) or selected.get("city") or ""
     state = (addr.get("state") if isinstance(addr, dict) else None) or selected.get("state") or ""
-    place_name = (addr.get("venue") if isinstance(addr, dict) else None) or selected.get("placeName") or ""
+    def _extract_place(ev: dict) -> str:
+        a = ev.get("address") if isinstance(ev.get("address"), dict) else {}
+        # Tenta múltiplas chaves comuns em APIs para nome do local
+        candidate_keys_addr = [
+            "venue", "name", "place", "place_name", "venue_name",
+            "address", "address_line", "address_line1", "address_line_1",
+            "local", "local_name", "location_name",
+        ]
+        for k in candidate_keys_addr:
+            try:
+                v = a.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            except Exception:
+                continue
+        # Top-level fallbacks
+        candidate_keys_top = ["placeName", "place", "venue", "location", "location_name"]
+        for k in candidate_keys_top:
+            try:
+                v = ev.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            except Exception:
+                continue
+        return ""
+    place_name = _extract_place(selected)
 
     # 3.1) Datas (formatação humana PT-BR)
     def _parse_date_ymd(date_str: str) -> tuple[int | None, int | None, int | None]:
