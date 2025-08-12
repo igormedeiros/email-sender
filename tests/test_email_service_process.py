@@ -54,7 +54,7 @@ class FakeConfig:
 
 def test_process_email_sending_success(monkeypatch, tmp_path):
     tpl = tmp_path / "t.html"
-    tpl.write_text("<html><body>Hi {email}</body></html>", encoding="utf-8")
+    tpl.write_text("<html><head><title>Convite PT</title></head><body><h1>PowerTreine Goiânia</h1>Hi {email}</body></html>", encoding="utf-8")
 
     monkeypatch.setattr(es, "Database", lambda cfg: FakeDb())
     fake_smtp = FakeSmtp()
