@@ -26,12 +26,12 @@ class EmailService:
         self.smtp_manager = SmtpManager(config)
 
     # ————————————————————————————————————
-    # Assunto via GenAI (opcional) com fallback
+    # Assunto via GenAI por padrão (sem hardcode), com fallback derivado de dados
     # ————————————————————————————————————
     def _build_subject_fallback(self) -> str:
         try:
             evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
-            event_name = str(evento_cfg.get("nome") or self.config.content_config.get("titulo") or "PowerTreine").strip()
+            event_name = str(evento_cfg.get("nome") or "").strip()
             city = str(evento_cfg.get("cidade") or "").strip()
             uf = str(evento_cfg.get("uf") or evento_cfg.get("state") or "").strip()
             data_txt = str(evento_cfg.get("data") or "").strip()
@@ -48,61 +48,46 @@ class EmailService:
                 parts.append(place)
             subject = " — ".join([p for p in parts if p])
             # Limitar tamanho amigável para inbox
-            return subject[:90] if subject else "PowerTreine — Novidades do evento"
+            return subject[:90]
         except Exception:
-            return "PowerTreine — Novidades do evento"
+            return ""
 
-    def _maybe_generate_subject(self, existing_subject: str) -> str:
-        # Se já há assunto definido e não está marcado para auto, mantenha
-        try:
-            import os as _os
-            subject_raw = (existing_subject or "").strip()
-            subject_norm = subject_raw.lower().strip()
-            # Permite forçar geração quando subject == "auto" ou "genai" ou por env var
-            force_auto = subject_norm in {"auto", "genai"}
-            env_force = (_os.environ.get("GENAI_SUBJECT") or _os.environ.get("SUBJECT_AUTOGEN") or "").lower() in {"1","true","yes","on"}
-            # Tratar placeholders comuns como sinal para autogerar
-            placeholder_subjects = {
-                "assunto de exemplo", "sem assunto", "assunto", "subject", "exemplo", "example subject"
-            }
-            looks_like_placeholder = subject_norm in placeholder_subjects
-            if subject_raw and not (force_auto or env_force or looks_like_placeholder):
-                return subject_raw
+    def _resolve_subject(self) -> str:
+        """Gera o assunto por GenAI quando possível; caso contrário, deriva dos dados do evento.
 
-            # Preparar contexto do evento
-            evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
-            prompt = (
-                "Você é um assistente de marketing. Gere um assunto de email curto (até 60 caracteres), "
-                "direto, em PT-BR, para convidar para um evento técnico. Evite emojis. "
-                "Inclua cidade ou data se agregar valor.\n\n"
-                f"Dados do evento (JSON): {evento_cfg}\n"
-            )
+        Regras:
+        - Se houver chave de API (GOOGLE_API_KEY ou GENAI_API_KEY), sempre gerar via GenAI.
+        - Caso contrário, compor a partir de `evento` (nome, cidade/UF, data, local), sem strings fixas.
+        - Opcionalmente, se SUBJECT_USE_YAML=1, usa `email.subject` exatamente como está no YAML.
+        """
+        import os as _os
+        # Respeitar opt-in explícito para usar YAML puro
+        if (_os.environ.get("SUBJECT_USE_YAML") or "").lower() in {"1","true","yes","on"}:
+            return str(self.config.content_config.get("email", {}).get("subject", "")).strip()
 
-            api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
-            model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
-            if not api_key:
-                # Sem chave: usa fallback heurístico
-                return self._build_subject_fallback()
-
+        evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
+        api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
+        model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
+        if api_key:
             try:
-                # Import atrasado para não quebrar em ambientes sem a lib
                 from langchain_google_genai import ChatGoogleGenerativeAI
                 from langchain_core.messages import HumanMessage
 
+                prompt = (
+                    "Você é um assistente de marketing. Gere um único assunto de email curto (<= 60 caracteres), "
+                    "claro e direto, em PT-BR, para convidar para um evento técnico. Sem emojis. "
+                    "Se útil, inclua cidade ou data. Responda apenas com o assunto.\n\n"
+                    f"Dados do evento (JSON): {evento_cfg}\n"
+                )
                 llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.7)
                 resp = llm.invoke([HumanMessage(content=prompt)])
                 text = getattr(resp, "content", None) or str(resp)
                 text = (text or "").strip().strip('"').strip("'")
-                # Poda tamanho e caracteres de quebra
-                text = " ".join(text.split())[:90]
-                return text or self._build_subject_fallback()
+                return " ".join(text.split())[:90]
             except Exception:
-                return self._build_subject_fallback()
-        except Exception:
-            try:
-                return subject_raw if (existing_subject and existing_subject.strip()) else self._build_subject_fallback()
-            except Exception:
-                return self._build_subject_fallback()
+                pass
+        # Fallback derivado dos dados
+        return self._build_subject_fallback()
 
     def send_email_to_test_recipient(self, template: str) -> Dict[str, Any]:
         """Envio simplificado para AMBIENTE de teste: pega 1 destinatário de teste via SQL e envia.
@@ -112,8 +97,7 @@ class EmailService:
         from rich.console import Console
         console = Console()
 
-        email_subject_cfg = self.config.content_config.get("email", {}).get("subject", "")
-        email_subject = self._maybe_generate_subject(email_subject_cfg)
+        email_subject = self._resolve_subject()
         # Resolver template path
         if not template.endswith('.html'):
             template += '.html'
@@ -302,8 +286,7 @@ class EmailService:
             console.print(f"Timeout por tentativa: [cyan]{send_timeout}s[/cyan]")
             console.print(f"Pausa entre lotes: [cyan]{pause_duration_after_attempts}s[/cyan]")
             
-            email_subject_cfg = self.config.content_config.get("email", {}).get("subject", "")
-            email_subject = self._maybe_generate_subject(email_subject_cfg)
+            email_subject = self._resolve_subject()
             console.print(f"Assunto do email: [bold magenta]'{email_subject}'[/bold magenta]")
 
             if not template.endswith('.html'):
