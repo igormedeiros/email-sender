@@ -1,0 +1,105 @@
+{
+  "name": "[email] 📩❌Unsubscribe",
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "=<!DOCTYPE html>\n<html lang=\"pt-BR\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Confirmação de Remoção</title>\n    <style>\n        body {\n            font-family: Arial, sans-serif;\n            background-color: #e0f2f7; /* Azul claro */\n            display: flex;\n            justify-content: center;\n            align-items: center;\n            min-height: 100vh;\n            margin: 0;\n            padding: 20px;\n            box-sizing: border-box;\n        }\n        .container {\n            background-color: #ffffff;\n            padding: 40px;\n            border-radius: 10px;\n            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);\n            text-align: center;\n            max-width: 500px;\n            width: 100%;\n        }\n        h1 {\n            color: #2196f3; /* Azul mais vibrante */\n            margin-bottom: 20px;\n        }\n        p {\n            color: #424242;\n            font-size: 1.1em;\n            line-height: 1.6;\n        }\n        .email {\n            font-weight: bold;\n            color: #0d47a1; /* Azul escuro */\n            word-break: break-all;\n        }\n    </style>\n</head>\n<body>\n    <div class=\"container\">\n        <h1>Confirmação de Remoção</h1>\n        <p>O endereço <span class=\"email\">{{ $('Webhook').item.json.query.email }}</span> foi removido com sucesso e não receberá mais nossos emails.</p>\n        <p>Agradecemos a sua compreensão.</p>\n    </div>\n</body>\n</html>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [
+        440,
+        -40
+      ],
+      "id": "b3cc5767-30c2-4d8f-90c4-325c3adfd4dd",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "path": "unsubscribe",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        -40
+      ],
+      "id": "5182b2fe-8ec0-4943-9124-fe3aa21f522f",
+      "name": "Webhook",
+      "webhookId": "71ef75fe-0c9c-4a25-863b-e1bbc07c4d40"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tbl_contacts\nSET\n    unsubscribed = TRUE, -- Corrigido: vírgula para separar as colunas\n    updated_at = NOW()\nWHERE\n    email = '{{ $json.query.email }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        -40
+      ],
+      "id": "7aeb77d4-d14a-4320-8387-abf9c70059f5",
+      "name": "Unsubscribe email",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Unsubscribe email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unsubscribe email": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "12368060-a28f-4847-8889-0b4607d05bda",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7aecd785065c00560272b71e81faeb672a42eb6d3995143b839eb5e1b941d4a"
+  },
+  "id": "dU6VFINx8afAp7QP",
+  "tags": [
+    {
+      "createdAt": "2025-05-13T03:03:46.623Z",
+      "updatedAt": "2025-05-13T03:03:46.623Z",
+      "id": "1vazMGVudOeQanvs",
+      "name": "email"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "name": "[Sympla] ℹ️Get Event Info",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM tbl_events\nwhere is_active = true;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -200,
+        240
+      ],
+      "id": "e26a2c6f-e4e5-4601-b028-d1294b0ec5e5",
+      "name": "Load Event Info",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -420,
+        240
+      ],
+      "id": "dd098fdc-921e-4c7c-963a-2130f5d507be",
+      "name": "When clicking ‘Test workflow’"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Load Event Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1c096a97-a41c-40ec-8a1a-57aad40e6c6e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7aecd785065c00560272b71e81faeb672a42eb6d3995143b839eb5e1b941d4a"
+  },
+  "id": "PAWWx51YQsLPNt0p",
+  "tags": [
+    {
+      "createdAt": "2025-05-25T03:40:39.880Z",
+      "updatedAt": "2025-05-25T03:40:39.880Z",
+      "id": "xxPxmrLLJ2JvywTp",
+      "name": "sympla"
+    }
+  ]
+}

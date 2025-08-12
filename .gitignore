@@ -76,6 +76,7 @@ reports/
 
 # Exceptions - template/example files that should be versioned
 !.env.example
+!.env.sample
 !example.properties
 !template.properties
 !example.env

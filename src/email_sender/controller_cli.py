@@ -107,7 +107,7 @@ def send_emails(
     config_file: str = typer.Option("config/config.yaml", "--config", "-c", help="Path to config file"),
     content_file: str = typer.Option("config/email.yaml", "--content", help="Path to email content file"),
     skip_unsubscribed_sync: bool = typer.Option(False, "--skip-sync", help="Skip unsubscribed emails synchronization before sending"),
-    mode: SendMode = typer.Option(..., help="Modo de envio obrigatório: especifique --mode=test ou --mode=production"),
+    mode: SendMode = typer.Option(None, help="Modo de envio: --mode=test ou --mode=production. Se omitido, usa ENVIRONMENT do .env"),
     bounces_file: str = typer.Option("data/bounces.csv", "--bounces-file", help="Caminho para o arquivo CSV com emails de bounce (coluna 'email')")
 ):
     """
@@ -135,13 +135,19 @@ def send_emails(
         print(f"Template de email a ser usado (de email.yaml): {template_path}")
             
         email_service = EmailService(config)
+
+        # Resolver modo a partir do ENVIRONMENT se não for passado
+        resolved_mode = mode.value if isinstance(mode, SendMode) else None
+        if not resolved_mode:
+            resolved_mode = "test" if config.environment_mode == "test" else "production"
+        print(f"Modo resolvido: {resolved_mode} (ENVIRONMENT={config.environment_mode})")
         
         # Delegar a execução para o service
         result = email_service.process_email_sending(
             csv_file=csv_file,
             template=template_path, # Usar o template_path lido da configuração
             skip_unsubscribed_sync=skip_unsubscribed_sync,
-            is_test_mode=(mode == SendMode.test),
+            is_test_mode=(resolved_mode == "test"),
             bounces_file_path=bounces_file # Passar o novo argumento
         )
         

@@ -49,6 +49,12 @@ class Config:
             
         # Inicializar o gerenciador de segredos
         self._init_secrets_manager()
+        
+        # Carregar modo de ambiente da variável ENVIRONMENT
+        self._environment = os.getenv("ENVIRONMENT", "test").strip().lower()
+        if self._environment not in {"test", "prod", "production"}:
+            logger.warning("ENVIRONMENT inválido: %s. Usando 'test' por padrão.", self._environment)
+            self._environment = "test"
             
     def _init_secrets_manager(self):
         """Inicializa o gerenciador de segredos com base nas configurações"""
@@ -118,6 +124,11 @@ class Config:
 
     @property
     def email_config(self) -> dict:
+        # Permitir ambas as chaves para compatibilidade: test_csv_file e test_emails_file
+        test_csv_file = self.config["email"].get(
+            "test_csv_file",
+            self.config["email"].get("test_emails_file", "data/test_emails.csv"),
+        )
         return {
             "sender": self.config["email"].get("sender", ""),
             "batch_size": int(self.config["email"].get("batch_size", 10)),
@@ -125,7 +136,8 @@ class Config:
             "test_recipient": self.config["email"].get("test_recipient"),
             "batch_delay": int(self.config["email"].get("batch_delay", 60)),
             "unsubscribe_file": self.config["email"].get("unsubscribe_file", "data/descadastros.csv"),
-            "test_emails_file": self.config["email"].get("test_emails_file", "data/test_emails.csv")
+            "test_emails_file": test_csv_file,
+            "test_csv_file": test_csv_file,
         }
 
     @property
@@ -172,4 +184,27 @@ class Config:
         timeout_config = self.rest_config.get("timeout", {})
         return {
             "request": int(timeout_config.get("request", 60))
+        }
+
+    # ————————————————————————————————————
+    # Ambiente e Postgres
+    # ————————————————————————————————————
+    @property
+    def environment_mode(self) -> str:
+        """Retorna o modo de ambiente: 'test' ou 'prod'."""
+        return "prod" if self._environment in {"prod", "production"} else "test"
+
+    @property
+    def postgres_config(self) -> dict:
+        """Credenciais/parametros do Postgres vindos do .env.
+
+        Variáveis esperadas:
+        - PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE
+        """
+        return {
+            "host": os.getenv("PGHOST", "localhost"),
+            "port": int(os.getenv("PGPORT", "5432")),
+            "user": os.getenv("PGUSER", ""),
+            "password": os.getenv("PGPASSWORD", ""),
+            "database": os.getenv("PGDATABASE", ""),
         }

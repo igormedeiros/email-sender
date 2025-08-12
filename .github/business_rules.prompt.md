@@ -10,7 +10,7 @@ Este documento descreve as regras de negócio fundamentais, comportamentos e fun
 
 O Email Sender é uma aplicação robusta projetada para processamento de emails em lote com recursos avançados para gerenciamento de listas de emails, acompanhamento de status de entrega e garantia de comunicação confiável. O sistema foi projetado para:
 
-- Enviar emails em lotes a partir de fontes de dados CSV
+- Enviar emails em lotes a partir de uma base de contatos
 - Rastrear o status de entrega de emails
 - Gerenciar descadastros e bounces
 - Fornecer relatórios detalhados
@@ -20,7 +20,7 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
 ### 1.2 Componentes Principais
 
 1. **Email Service**: Serviço principal que gerencia o processo de envio de emails
-2. **CSV Reader**: Manipula entrada/saída de dados com recursos de segurança
+2. (removido) 
 3. **Template Processor**: Gerencia a personalização do conteúdo dos emails
 4. **SMTP Manager**: Gerencia a comunicação com o servidor de email
 5. **Report Generator**: Cria relatórios detalhados das campanhas de email
@@ -28,48 +28,34 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
 
 ## 2. Regras de Gerenciamento de Dados
 
-### 2.1 Estrutura de Arquivos CSV
+### 2.1 Estrutura dos dados de contato
 
-O sistema processa arquivos CSV com a seguinte estrutura:
+- email: endereço de e-mail válido (obrigatório)
+- flags e tags de status (ex.: unsubscribed, bounce)
+- atributos de personalização (ex.: nome, empresa, cargo)
 
-#### 2.1.1 Colunas Obrigatórias
+#### 2.1.1 (Modo CLI baseado em CSV)
+- Colunas esperadas no CSV principal: `email`, `enviado`, `falhou`, `descadastro` (S/""), `bounced` (True/False)
+- Normalização automática: emails convertidos para minúsculas quando `enviado` está vazio
+- Filtragem implícita no processamento: somente linhas com `enviado==""` e `falhou!="ok"` e `descadastro!="S"`
 
-| Coluna      | Descrição                       | Valores                                      |
-| ----------- | ------------------------------- | -------------------------------------------- |
-| email       | Endereço de email (obrigatório) | Endereço de email válido                     |
-| enviado     | Status de envio                 | "" (não enviado), "ok" (enviado com sucesso) |
-| falhou      | Status de falha                 | "" (sem falha), "ok" (falha no envio)        |
-| descadastro | Flag de descadastramento        | "" (enviar), "S" (não enviar)                |
+### 2.2 Armazenamento
 
-#### 2.1.2 Colunas Opcionais
-
-Colunas adicionais podem ser incluídas para personalização:
-
-- nome: Nome do destinatário
-- empresa: Nome da empresa
-- cargo: Cargo/função
-- Quaisquer outras colunas necessárias para personalização do template
-
-### 2.2 Arquivos de Dados
-
-O sistema utiliza os seguintes arquivos de dados:
-
-1. **emails_geral.csv**: Lista principal de emails para produção
-2. **test_emails.csv**: Lista de emails de teste para validação
-3. **descadastros.csv**: Lista de emails descadastrados
-4. **bounces.csv**: Lista de emails com problemas de entrega
+- Dois cenários suportados:
+  - **Workflow n8n (produção)**: Postgres para `tbl_contacts`, `tbl_tags`/`tbl_contact_tags`, `tbl_messages`, `tbl_message_logs`, `tbl_lead_scores`, `tbl_events`.
+  - **CLI Python (CSV)**: arquivos CSV versionados localmente para base de envio; listas de `descadastros.csv` e `bounces.csv` externas.
 
 ### 2.3 Regras de Segurança de Dados
 
-1. **Backups Automáticos**: O sistema cria cópias de backup dos arquivos CSV antes de fazer modificações
-2. **Salvamentos Atômicos**: Os arquivos são salvos usando operações atômicas para prevenir corrupção de dados
+1. **Consistência**: operações críticas transacionais
+2. **Idempotência**: chaves compostas em logs para evitar duplicatas
 3. **Restauração em Caso de Falha**: Se uma operação falhar, o sistema restaura automaticamente os dados do backup
 4. **Tratamento de Sinais**: Captura sinais SIGINT e outros sinais de interrupção para salvar dados com segurança
 
 ### 2.4 Regras de Processamento de Dados
 
 1. **Processamento em Lotes**: Os emails são processados em tamanhos de lote configuráveis
-2. **Detecção de CSV**: O sistema detecta automaticamente separadores CSV (vírgula ou ponto e vírgula)
+2. (removido)
 3. **Normalização de Email**: Todos os endereços de email são convertidos para minúsculas para consistência
 4. **Tratamento de Duplicatas**: O sistema pode identificar e gerenciar endereços de email duplicados
 
@@ -80,14 +66,13 @@ O sistema utiliza os seguintes arquivos de dados:
 1. **Inicialização**:
 
    - Carregar configuração
-   - Criar backup do arquivo CSV
+   - Validar origem de dados
    - Validar existência do template
    - Carregar listas de descadastros e bounces
 
 2. **Filtragem**:
 
-   - Pular emails já marcados como enviados
-   - Pular emails marcados como falha
+   - Pular contatos já logados como enviados na campanha atual
    - Pular emails descadastrados
    - Pular emails com histórico de bounce
    - Pular endereços de email inválidos
@@ -119,13 +104,18 @@ O sistema utiliza os seguintes arquivos de dados:
    - Timeout configurável por tentativa (padrão: 10 segundos)
 
 3. **Marcação de Falhas**:
-   - Emails que falham após todas as tentativas são marcados como falha no CSV
+   - Emails que falham após todas as tentativas são marcados com falha na base
    - O sistema preserva a mensagem de erro específica para solução de problemas
+
+### 3.4 Validação de Emails (modo CLI)
+- Ignorar registros com email ausente, `NaN` ou sem `@` (contabilizados como inválidos)
+- Emails na lista de descadastros ou bounces são pulados e contabilizados como "pulados"
+- Tamanho de lote e pausa entre lotes configuráveis
 
 ### 3.3 Modo de Teste
 
 1. O sistema suporta modos de teste e produção
-2. O modo de teste usa um arquivo CSV separado (test_emails.csv) para evitar comunicação com clientes reais durante testes
+2. O modo de teste usa lista/segmento de contatos de teste para evitar comunicação com clientes reais
 3. Todas as outras funcionalidades permanecem as mesmas entre os modos de teste e produção
 
 ## 4. Regras de Conteúdo de Email
@@ -142,8 +132,8 @@ O sistema utiliza os seguintes arquivos de dados:
    - {email}: Substituído pelo email do destinatário
    - {unsubscribe_url}: Substituído pela URL de descadastro da configuração
    - {subscribe_url}: Substituído pela URL de cadastro da configuração
-   - {nome}, {empresa}, {cargo}: Substituídos pelos dados do destinatário do CSV
-   - Qualquer coluna no CSV pode ser usada como placeholder com a sintaxe {nome_da_coluna}
+   - {nome}, {empresa}, {cargo}: Substituídos pelos dados do destinatário
+   - Qualquer atributo pode ser usado como placeholder com a sintaxe {nome_do_atributo}
 
 3. **Placeholders Especiais**:
 
@@ -158,13 +148,13 @@ O sistema utiliza os seguintes arquivos de dados:
 
 ### 5.1 Tratamento de Descadastros
 
-1. Antes do envio, o sistema carrega emails descadastrados do arquivo descadastros.csv
+1. Antes do envio, o sistema consulta contatos com unsubscribed=true
 2. Emails marcados com "S" na coluna descadastro nunca são enviados
 3. Emails descadastrados são pulados e reportados nas estatísticas
 
 ### 5.2 Tratamento de Bounces
 
-1. Emails com bounce são rastreados no arquivo bounces.csv
+1. Emails com bounce são rastreados via tags/flags na base
 2. Emails na lista de bounces são pulados durante o processo de envio
 3. Os bounces pulados são reportados nas estatísticas
 
@@ -230,6 +220,16 @@ O sistema usa arquivos YAML para configuração com estas seções principais:
    - Detalhes de promoção
    - Referência do arquivo CSS
 
+### 7.2 Ambiente (.env)
+- `ENVIRONMENT`: `prod` ou `test` (em `test`, nunca enviar para base real; usar somente CSV/lista de teste)
+- Postgres: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
+- Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+- Nunca commitar `.env`; versionar `.env.sample` com as chaves acima
+
+### 7.3 Segurança da API
+- Endpoints REST requerem token (JWT/API key) quando habilitado nas configurações
+- Operações administrativas (ex.: limpar flags, sincronizações) exigem papel `admin`
+
 ## 8. Recursos de Resiliência e Segurança
 
 ### 8.1 Resiliência de Rede
@@ -274,13 +274,86 @@ O sistema fornece uma interface de linha de comando para:
 
 - Enviar emails
 - Executar envios de teste
-- Gerenciar dados CSV
+ 
 - Verificar status
 - Gerar relatórios
 
-### 9.2 API REST
+### 9.2 API REST (principais endpoints)
+- `POST /api/emails/send` (token): dispara envio em lote; aceita `csv_file`, `template`, `skip_unsubscribed_sync`, `mode=test|production`.
+- `POST /api/emails/test-smtp` (token): envia email de teste para validar SMTP.
+- `POST /api/emails/clear-flags` (admin): limpa flags `enviado`/`falhou` no CSV.
+- `POST /api/emails/sync-unsubscribed` (admin): sincroniza `descadastros.csv` com CSV principal.
+- `GET /api/config` (admin): obtém `config/email.yaml`.
+- `PUT /api/config` (admin): substitui `config/email.yaml` com backup automático.
+- `PATCH /api/config/partial` (admin): atualiza parcialmente `config/email.yaml` com merge recursivo.
 
-Uma API REST expõe a funcionalidade do sistema para integração com outras aplicações.
+### 9.3 CLI (comandos Typer)
+- `send-emails`:
+  - Opções: `--config`, `--content`, `--csv-file`, `--mode=test|production` (padrão vem de `ENVIRONMENT`), `--bounces-file`, `--skip-sync`.
+  - Usa `email.yaml` para `template_path` e assunto; aplica retries, timeouts e pausas entre lotes.
+- `test-smtp`: envia email de teste para `test_recipient` da configuração.
+- `clear-sent-flags`: limpa colunas `enviado`/`falhou` com backup atômico.
+- `sync-unsubscribed-command`: reconcilia `descadastros.csv` no CSV principal (marca `descadastro == 'S'`).
+- `sync-bounces-command`: marca `bounced == True` no CSV principal com base em lista externa.
+
+## 10. Workflows e passos (base n8n — referência para reimplementar em Python CLI)
+
+Esta seção consolida os fluxos que estavam no `n8n/` e serve como especificação funcional para a nova implementação em Python puro (CLI).
+
+### 10.1 Tabelas/Conceitos usados
+- `tbl_contacts`: contatos; campos relevantes: `id`, `email`, `is_buyer`, `unsubscribed`.
+- `tbl_tags` e `tbl_contact_tags`: taxonomia e pivot de tags. Tags: `Unsubscribed`, `Bounce` (id 1), `abriu email` (id 6), `Clicked_email` (id 7), `buyer_s2c5f20`, `test`.
+- `tbl_messages`: campanhas (`id`, `subject`, `internal_name`, `event_id`, `processed`).
+- `tbl_message_logs`: trilhas de eventos (`sent`, `opened`, `clicked`) com `event_timestamp`, `status/details`, `ip_address`, `user_agent`.
+- `tbl_lead_scores`: pontuação por contato (opened +1, clicked +3) via upsert.
+- `tbl_events`: evento ativo do Sympla (`sympla_id`, `event_name`, datas, `city/state/place_name`, `event_link`, `detail` Markdown, `is_active`).
+
+### 10.2 Configurar/Ativar evento (Sympla)
+- Entrada define `eventId` e `cupom`.
+- Buscar evento via API Sympla; converter `detail` HTML→Markdown; formatar datas ("01 e 02 de março") e horário ("Xh às Yh"); montar `event_link = url + cupom`.
+- Desativar todos (`is_active=false`) e atualizar ou inserir evento com `is_active=true`.
+- Notificar via Telegram (cidade, datas, sympla_id).
+
+### 10.3 Obter evento ativo
+- `SELECT * FROM tbl_events WHERE is_active = true` e disponibilizar para outros fluxos.
+
+### 10.4 Envio de emails (campanha)
+- Início: marcar modo de sessão `test|prod`; obter evento ativo; gerar assunto (IA opcional com memória por `sympla_id`); criar linha em `tbl_messages` (`subject`, `internal_name`) retornando `message_id`.
+- Seleção de contatos (Postgres):
+  - `email` não vazio; `is_buyer=false`; `unsubscribed=false`.
+  - NÃO ter tags: `Unsubscribed`, `Bounce`, `buyer_s2c5f20`.
+  - Modo `test=true`: contato deve ter tag `test`. `test=false`: contato não pode ter tag `test`.
+  - Não ter log prévio para a `message_id` em `tbl_message_logs`.
+  - A `tbl_messages.processed` da mensagem atual deve ser `false`.
+- Renderização do HTML: inclui pixel `GET /pixel?contact_id&message_id`, CTA `GET /powertreine?contact_id&message_id` (redireciona para `event_link`), e link de descadastro `GET /unsubscribe?email`.
+- Envio SMTP com validação de sucesso (ex.: resposta contém "250 2.0.0 Ok"); throttle ~1.5s; `INSERT` log `sent`.
+- Finalização: `UPDATE tbl_messages SET processed=true` e notificação Telegram.
+- Observação ambiente: se `ENVIRONMENT=test`, envio limitado a emails de teste; notificações podem ir para chat de testes.
+
+### 10.5 Pixel de abertura
+- `GET /pixel?contact_id&message_id` responde com redirect `about:blank`.
+- Upsert em `tbl_lead_scores` (+1) e tag "abriu email" (id 6) no contato.
+- Log `opened` com IP (e User-Agent se aplicável), evitando duplicatas.
+
+### 10.6 Clique em link
+- `GET /powertreine?contact_id&message_id&url=<destino>` redireciona para `event_link` do evento ativo.
+- Upsert `tbl_lead_scores` (+3), tag `Clicked_email` (id 7) e log `clicked` (detalhes=URL, IP, User-Agent) sem duplicar.
+
+### 10.7 Descadastro
+- `GET /unsubscribe?email=...` marca `unsubscribed=true` no contato e responde com página de confirmação.
+
+### 10.8 Bounces (hard bounces)
+- Coletar do provedor via API (status=errors), paginar e filtrar por `bounce_code` (lista de hard bounces). Para cada email: tag `Bounce` (id 1).
+- Notificar via Telegram início/fim com totais.
+- Observação ambiente: em `test`, limpeza atua somente em base de teste/simulação e notifica no chat de testes.
+
+### 10.9 Regras derivadas
+- Idempotência por `message_id/contact_id` usando `tbl_message_logs`.
+- Fechamento de campanha por `tbl_messages.processed=true`.
+- Segmentação por tags e modo `test`.
+- Pontuação de lead por abertura/clique.
+- Tracking por pixel e webhooks dedicados.
+- Notificações operacionais (Telegram) em marcos do processo.
 
 ## 10. Implantação e Gerenciamento
 

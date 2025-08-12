@@ -1,0 +1,385 @@
+{
+  "name": "[sympla] ⚙️✅Set Event Info",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -540
+      ],
+      "id": "dcc15f9d-c25d-4a2e-ada8-3f4c64b2d4bb",
+      "name": "When clicking ‘Test workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o primeiro item de entrada que está sendo processado pelo nó 'Code'\nconst currentItem = items[0];\n\n// Acessa o conteúdo HTML do campo 'detail', que está dentro do objeto 'data'\nconst htmlContent = currentItem.json.data.detail;\n\nlet markdownContent = htmlContent;\n\n// --- Começa a conversão de HTML para Markdown (do seu primeiro código) ---\n\n// 0. Prepend o título principal fixo para o documento Markdown\nmarkdownContent = \"# Detalhes do Evento\\n\\n\" + markdownContent;\n\n// 1. Substitui entidades HTML como &nbsp; por espaços comuns\nmarkdownContent = markdownContent.replace(/&nbsp;/g, ' ');\n\n// 2. Normaliza quebras de linha (Windows, Mac, Linux para apenas '\\n')\n//    Isso garante consistência antes de processar outras quebras de linha e blocos.\nmarkdownContent = markdownContent.replace(/(\\r\\n|\\r)/g, '\\n'); \n\n// 3. Remove <iframe> tags completamente, pois não têm um equivalente direto no Markdown\nmarkdownContent = markdownContent.replace(/<iframe\\b[^>]*>(.*?)<\\/iframe>/gi, '');\nmarkdownContent = markdownContent.replace(/<iframe\\b[^>]*\\/>/gi, ''); // Para iframes self-closing\n\n// 4. Converte tags <br> para quebras de linha simples\nmarkdownContent = markdownContent.replace(/<br\\s*\\/?>/gi, '\\n');\n\n// 5. Converte TODAS as tags de cabeçalho HTML (h1 a h6) para Markdown H2 (##)\n//    Isso padroniza todos os títulos de seção para H2.\nmarkdownContent = markdownContent.replace(/<h[1-6]\\b[^>]*>(.*?)<\\/h[1-6]>/gi, '\\n## $1\\n');\n\n// 6. Converte tags de negrito (<strong> ou <b>)\nmarkdownContent = markdownContent.replace(/<b\\b[^>]*>(.*?)<\\/b>/gi, '**$1**');\nmarkdownContent = markdownContent.replace(/<strong\\b[^>]*>(.*?)<\\/strong>/gi, '**$1**');\n\n// 7. Converte tags de itálico (<em> ou <i>)\nmarkdownContent = markdownContent.replace(/<i\\b[^>]*>(.*?)<\\/i>/gi, '*$1*');\nmarkdownContent = markdownContent.replace(/<em\\b[^>]*>(.*?)<\\/em>/gi, '*$1*');\n\n// 8. Converte tags de link (<a>)\nmarkdownContent = markdownContent.replace(/<a\\s+(?:[^>]*?\\s+)?href=\"([^\"]*)\"[^>]*>(.*?)<\\/a>/gi, '[$2]($1)');\n\n// 9. Converte parágrafos (<p>). Adiciona quebras de linha duplas para separação.\n//    Isso ajuda a criar blocos de texto distintos no Markdown.\nmarkdownContent = markdownContent.replace(/<p\\b[^>]*>(.*?)<\\/p>/gis, '\\n\\n$1\\n\\n');\n\n// 10. Trata listas (<ul>, <ol>, <li>):\n//      Remove as tags <ul> e <ol> (apenas os marcadores de lista serão usados via <li>).\nmarkdownContent = markdownContent.replace(/<(ul|ol)\\b[^>]*>/gi, '\\n').replace(/<\\/(ul|ol)>/gi, '\\n');\n\n//      Processa tags <li>: adiciona '- ' e uma quebra de linha.\n//      Remove quaisquer tags HTML que estejam dentro do conteúdo do item da lista.\nmarkdownContent = markdownContent.replace(/<li\\b[^>]*>(.*?)<\\/li>/gis, (match, p1) => {\n    let cleanListItemContent = p1.replace(/<[^>]*>/g, '').trim(); \n    return `- ${cleanListItemContent}\\n`;\n});\n\n\n// 11. Remove quaisquer outras tags HTML remanescentes (como <span>, <div>, <font>, etc.)\n//     Esta é a etapa final de limpeza de tags que não foram convertidas em Markdown.\nmarkdownContent = markdownContent.replace(/<[^>]*>/g, '');\n\n// 12. Substituições específicas para seções que deveriam ser H2, mas não eram tags HTML de cabeçalho.\n//     Isso é feito APÓS a remoção geral de HTML para garantir que o texto puro seja alvo.\n//     A regex (^|\\n\\n) e (\\n\\n|$) garante que a substituição ocorra em blocos de texto distintos.\nmarkdownContent = markdownContent.replace(/(^|\\n\\n)(OBJETIVO|PÚBLICO ALVO|EVENTOS ANTERIORES|CARGA HORÁRIA|CONTEÚDO PROGRAMÁTICO|ALMOÇO|ESTACIONAMENTO)(\\n\\n|$)/g, '\\n\\n## $2\\n\\n');\n\n// 13. Limpa múltiplas quebras de linha consecutivas (mais de duas) para no máximo duas\n//     e remove espaços em branco no início/fim do conteúdo final.\nmarkdownContent = markdownContent.replace(/(\\n\\s*){2,}/g, '\\n\\n').trim();\n\n// --- Fim da conversão ---\n\n// O campo 'detail' agora já está em Markdown\ncurrentItem.json.data.detail = markdownContent;\n\n\n// --- Funções Auxiliares para Formatação de Data e Hora (do seu segundo código) ---\n\nconst formatEventDate = (startDateStr, endDateStr) => {\n    if (!startDateStr || !endDateStr) {\n        return '';\n    }\n\n    const meses = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];\n\n    const start = new Date(startDateStr);\n    const end = new Date(endDateStr);\n\n    const diaStart = start.getDate();\n    const diaEnd = end.getDate();\n    const mesNome = meses[start.getMonth()]; // Assume o mesmo mês para início e fim\n\n    if (start.getFullYear() !== end.getFullYear()) {\n        return `${diaStart} de ${meses[start.getMonth()]} de ${start.getFullYear()} e ${diaEnd} de ${meses[end.getMonth()]} de ${end.getFullYear()}`;\n    } else if (start.getMonth() !== end.getMonth()) {\n        return `${diaStart} de ${meses[start.getMonth()]} e ${diaEnd} de ${meses[end.getMonth()]}`;\n    } else {\n        return `${diaStart} e ${diaEnd} de ${mesNome}`;\n    }\n};\n\nconst formatEventHour = (startDateStr, endDateStr) => {\n    if (!startDateStr || !endDateStr) {\n        return '';\n    }\n\n    const getHourFromISOString = isoStr => {\n        return parseInt(isoStr.split('T')[1].slice(0, 2), 10);\n    };\n\n    const startHour = getHourFromISOString(startDateStr);\n    const endHour = getHourFromISOString(endDateStr);\n\n    return `${startHour}h às ${endHour}h (ambos os dias)`;\n};\n\n// --- Construção do Novo Objeto de Saída (do seu segundo código) ---\n\nconst outputData = {\n    sympla_id: currentItem.json.data.id,\n    eventName: currentItem.json.data.name,\n    date: formatEventDate(currentItem.json.data.start_date, currentItem.json.data.end_date),\n    hour: formatEventHour(currentItem.json.data.start_date, currentItem.json.data.end_date),\n    city: currentItem.json.data.address.city,\n    state: currentItem.json.data.address.state,\n    placeName: currentItem.json.data.address.name,\n    Address: `${currentItem.json.data.address.address}, ${currentItem.json.data.address.address_num} - ${currentItem.json.data.address.neighborhood}`,\n    detail: currentItem.json.data.detail,\n    event_link: $input.first().json.data.url + $('Set Event').first().json.cupom\n  \n};\n\n// Retorna o novo objeto JSON em um array, conforme o nó 'Code' espera\nreturn [{ json: outputData }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -540
+      ],
+      "id": "00e1756a-6fa5-4480-b190-369407a3efce",
+      "name": "Complete Event Details",
+      "alwaysOutputData": true,
+      "notes": "Este nó centraliza a **conversão de HTML para Markdown** do campo `data.detail` e a **formatação/estruturação de dados do evento**.\n\n**Funções:**\n1.  **HTML para Markdown:** Converte o `detail` (HTML) para Markdown, incluindo tratamento de tags, listas, e formatação de seções.\n2.  **Formatação de Dados:** Extrai e formata `eventName`, `date` (ex: \"Dia e Dia de Mês\"), `hour` (ex: \"Xh às Yh\"), `city`, `state`, `placeName`, e `Address` completos do evento.\n\n**Saída:** Objeto JSON com dados do evento formatados e `detail` em Markdown."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tbl_events\nSET is_active = false\nwhere is_active = true",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        -540
+      ],
+      "id": "fb56fa34-d7ac-44f7-9693-b3aeb16a220c",
+      "name": "Set All Events as Inative",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tbl_events (\n    sympla_id,\n    event_name,\n    event_start_date,\n    event_end_date,\n    city,\n    state,\n    place_name, is_active, detail\n)\nVALUES (\n    '{{ $('Set Event').item.json.eventId }}',\n    '{{ $('Complete Event Details').item.json.eventName }}',\n    '{{ $('HTTP Request GET Event Info').item.json.data.start_date }}', \n    '{{ $('HTTP Request GET Event Info').item.json.data.end_date }}', \n    '{{ $('Complete Event Details').item.json.city }}',\n    '{{ $('Complete Event Details').item.json.state }}',\n    '{{ $('Complete Event Details').item.json.placeName }}',\n    true,\n  '{{ $('Complete Event Details').item.json.detail }}'\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1600,
+        -440
+      ],
+      "id": "63b3debb-6594-428d-a292-6d793cd56333",
+      "name": "Insert and Activate New Event",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3bb276a6-9d89-49c7-8d02-fc231cdaefde",
+              "name": "eventId",
+              "value": "s2e4a46",
+              "type": "string"
+            },
+            {
+              "id": "8ebec00a-47b7-4dc9-92a9-34eeeaf51cbb",
+              "name": "cupom",
+              "value": "?d=CINA30",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        60,
+        -540
+      ],
+      "id": "7c047f48-83fd-438b-9c0d-e8e962147aea",
+      "name": "Set Event"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b2946ae3-627e-4ecc-af2f-23637024eec7",
+              "leftValue": "={{ $json.has_results }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1380,
+        -540
+      ],
+      "id": "f1333afa-6b71-42f9-b8b5-4e90d3e2727d",
+      "name": "Event Exists?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from tbl_events\nwhere sympla_id='{{ $('Set Event').item.json.eventId }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        940,
+        -540
+      ],
+      "id": "a32b9c5b-d8f4-481a-9461-5a187e7d931b",
+      "name": "Search for Event",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "67800224",
+        "text": "=✅⚙️ *Campanha configurada* para o evento de {{ $('Complete Event Details').item.json.city }} em {{ $('Complete Event Details').item.json.date }} ({{ $('Complete Event Details').item.json.sympla_id }})",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1820,
+        -540
+      ],
+      "id": "21a53433-1c51-46da-9d6b-da49e54fde39",
+      "name": "Telegram",
+      "webhookId": "97e95315-5c00-4d88-8a35-d94b9030760c",
+      "credentials": {
+        "telegramApi": {
+          "id": "QVWNuGeLhVSwaTOz",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.sympla.com.br/public/v1.5.1/events/{{ $json.eventId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "s_token",
+              "value": "c8e87939e36ff85265e9e09030fecaae7cea1f45027e8834bb4e13dcbab7913c"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        -540
+      ],
+      "id": "d55942b6-b672-4b9c-a730-a5104f3eb59d",
+      "name": "HTTP Request GET Event Info",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tbl_events\nSET\n    is_active = TRUE, \n    event_name = '{{ $('Complete Event Details').item.json.eventName }}',\n    detail = '{{ $('Complete Event Details').item.json.detail }}',\n    event_start_date = '{{ $('HTTP Request GET Event Info').item.json.data.start_date }}',\n    event_end_date = '{{ $('HTTP Request GET Event Info').item.json.data.end_date }}',\n    city = '{{ $('Complete Event Details').item.json.city }}',\n    state = '{{ $('Complete Event Details').item.json.state }}',\n  place_name='{{ $('Complete Event Details').item.json.placeName }}',\n  event_link='{{ $('Complete Event Details').item.json.event_link }}'\nWHERE\n    sympla_id = '{{ $('Set Event').item.json.eventId }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1600,
+        -640
+      ],
+      "id": "94b7fd81-8c02-4d54-a8f4-99749f6636fd",
+      "name": "update event info",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let has_results = false;\n\n// 1. Primeiro, verifica se há algum item na entrada do nó.\n//    Se o nó anterior não produziu nenhum resultado, 'items' será um array vazio.\nif (items.length > 0) {\n    const firstItemJson = items[0].json;\n\n    // 2. Se há um item, verifica se o conteúdo JSON desse item não é vazio.\n    //    Assumimos que um \"resultado\" significa que o 'firstItemJson' é um objeto\n    //    com pelo menos uma chave. Se ele é um objeto vazio `{}`, consideramos \"sem resultados\".\n    if (firstItemJson && typeof firstItemJson === 'object' && Object.keys(firstItemJson).length > 0) {\n        has_results = true;\n    }\n    // *** ADICIONE AQUI LÓGICAS ADICIONAIS SE SEU \"RESULTADO\" PODE SER OUTRA COISA ***\n    // Por exemplo, se você espera um array no firstItemJson e quer verificar se ele não está vazio:\n    // else if (Array.isArray(firstItemJson) && firstItemJson.length > 0) {\n    //     has_results = true;\n    // }\n    // Ou se você espera um campo específico estar presente e não ser nulo:\n    // else if (firstItemJson && firstItemJson.some_id_field !== undefined && firstItemJson.some_id_field !== null) {\n    //     has_results = true;\n    // }\n}\n\n// Retorna um novo item com a propriedade booleana 'has_results'\n// O nó 'If' usará esta propriedade para tomar a decisão.\nreturn [{ json: { has_results: has_results } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        -540
+      ],
+      "id": "32d74ce2-e107-4b6e-ad4a-0e71d62a1350",
+      "name": "Results?",
+      "alwaysOutputData": true,
+      "notes": "Este nó centraliza a **conversão de HTML para Markdown** do campo `data.detail` e a **formatação/estruturação de dados do evento**.\n\n**Funções:**\n1.  **HTML para Markdown:** Converte o `detail` (HTML) para Markdown, incluindo tratamento de tags, listas, e formatação de seções.\n2.  **Formatação de Dados:** Extrai e formata `eventName`, `date` (ex: \"Dia e Dia de Mês\"), `hour` (ex: \"Xh às Yh\"), `city`, `state`, `placeName`, e `Address` completos do evento.\n\n**Saída:** Objeto JSON com dados do evento formatados e `detail` em Markdown."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Set Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Complete Event Details": {
+      "main": [
+        [
+          {
+            "node": "Set All Events as Inative",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set All Events as Inative": {
+      "main": [
+        [
+          {
+            "node": "Search for Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Event": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request GET Event Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Event Exists?": {
+      "main": [
+        [
+          {
+            "node": "update event info",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Insert and Activate New Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search for Event": {
+      "main": [
+        [
+          {
+            "node": "Results?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert and Activate New Event": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request GET Event Info": {
+      "main": [
+        [
+          {
+            "node": "Complete Event Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update event info": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Results?": {
+      "main": [
+        [
+          {
+            "node": "Event Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "8ffd1015-5ed6-48be-b536-29994eb1b298",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7aecd785065c00560272b71e81faeb672a42eb6d3995143b839eb5e1b941d4a"
+  },
+  "id": "eXUHuRgEJa4fM4Jj",
+  "tags": [
+    {
+      "createdAt": "2025-05-25T03:40:39.880Z",
+      "updatedAt": "2025-05-25T03:40:39.880Z",
+      "id": "xxPxmrLLJ2JvywTp",
+      "name": "sympla"
+    }
+  ]
+}

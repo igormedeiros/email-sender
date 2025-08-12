@@ -13,6 +13,11 @@ dependencies = [
     "typer>=0.15.3",
 ]
 
+# Entry points de CLI
+[project.scripts]
+email-sender = "email_sender.controller_cli:app"
+treineinsite = "email_sender.controller_cli:app"
+
 # ————————————————————————————
 # Grupos de dependência (PEP 735)
 # ————————————————————————————

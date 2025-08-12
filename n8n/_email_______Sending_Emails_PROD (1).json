@@ -1,0 +1,736 @@
+{
+  "name": "[email] ✅📩🎯Sending Emails PROD",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    tc.id,\n    tc.email\nFROM\n    tbl_contacts AS tc\nWHERE\n    tc.email IS NOT NULL AND tc.email <> ''\n    AND tc.is_buyer = FALSE\n    AND tc.unsubscribed = FALSE\n\n    -- Contato NÃO deve ter a tag 'Unsubscribed'\n    AND NOT EXISTS (\n        SELECT 1\n        FROM tbl_contact_tags AS ctb\n        JOIN tbl_tags AS t ON ctb.tag_id = t.id\n        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) = 'unsubscribed'\n    )\n    -- Contato NÃO deve ter a tag 'Bounce'\n    AND NOT EXISTS (\n        SELECT 1\n        FROM tbl_contact_tags AS ctb\n        JOIN tbl_tags AS t ON ctb.tag_id = t.id\n        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) = 'bounce' -- Correção aplicada\n    )\n    -- Contato NÃO deve ter a tag 'buyer_s2c5f20'\n    AND NOT EXISTS (\n        SELECT 1\n        FROM tbl_contact_tags AS ctb\n        JOIN tbl_tags AS t ON ctb.tag_id = t.id\n        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) = 'buyer_s2c5f20' -- Correção aplicada\n    )\n\n    -- Verificação da tag 'Test' (depende do modo de sessão)\n    AND (\n        ( {{ $('SessionInfo').item.json.test }} = TRUE AND EXISTS (\n            SELECT 1\n            FROM tbl_contact_tags AS ctb_t\n            JOIN tbl_tags AS t_t ON ctb_t.tag_id = t_t.id\n            WHERE ctb_t.contact_id = tc.id AND LOWER(TRIM(t_t.tag_name)) = 'test' -- Correção aplicada\n        ) )\n        OR\n        ( {{ $('SessionInfo').item.json.test }} = FALSE AND NOT EXISTS (\n            SELECT 1\n            FROM tbl_contact_tags AS ctb_t\n            JOIN tbl_tags AS t_t ON ctb_t.tag_id = t_t.id\n            WHERE ctb_t.contact_id = tc.id AND LOWER(TRIM(t_t.tag_name)) = 'test' -- Correção aplicada\n        ) )\n    )\n\n    -- Verificação de log de envio (contato NÃO RECEBEU esta mensagem específica)\n    AND NOT EXISTS (\n        SELECT 1\n        FROM tbl_message_sent_logs AS tmsl\n        WHERE\n            tmsl.contact_id = tc.id\n            AND tmsl.message_id = {{ $json.messageId }}\n    )\n    -- Verificação de status da mensagem (MENSAGEM atual AINDA NÃO FOI COMPLETAMENTE PROCESSADA)\n    AND EXISTS (\n        SELECT 1\n        FROM tbl_messages AS tm\n        WHERE\n            tm.id = {{ $json.messageId }}\n            AND tm.processed = FALSE\n    )\nORDER BY\n    tc.id ASC;",
+        "options": {}
+      },
+      "id": "cb47979e-efe2-47eb-8110-11801908d108",
+      "name": "Load Contacts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        -184,
+        105
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        36,
+        105
+      ],
+      "id": "7afb3693-b607-4e15-ac11-ebe342e3deca",
+      "name": "Loop Over Items",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "fromEmail": "mkt@treineinsite.com.br",
+        "toEmail": "={{ $('Load Contacts').item.json.email }}",
+        "subject": "={{ $('messageContents').item.json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "cf3d0e33-2e82-4cf2-9cf0-7f20f63176a4",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [
+        476,
+        130
+      ],
+      "webhookId": "3613871b-241e-461e-9a1d-3f138980bbac",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "smtp": {
+          "id": "VFcvW5cduaVlHWuW",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6138119d-0423-42d7-b312-d664c9eebe16",
+              "leftValue": "={{ $json.response }}",
+              "rightValue": "250 2.0.0 Ok",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "c03ea16d-6725-4be0-80e9-e97578e6b145",
+              "leftValue": "={{ $json.accepted[0] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        696,
+        130
+      ],
+      "id": "45b0d2a2-fc68-4a35-b167-732c9460d944",
+      "name": "Sucesso ao enviar?"
+    },
+    {
+      "parameters": {
+        "amount": 1.5,
+        "unit": "seconds"
+      },
+      "id": "b391e69d-4538-4fda-9bd2-4d1fd734fa3d",
+      "name": "Wait 1s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        916,
+        130
+      ],
+      "webhookId": "81ee60a4-5859-4c6d-8ff7-4c98aa5b14ec"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tbl_message_logs (contact_id, message_id, event_type, event_timestamp, status, details)\nVALUES (\n    '{{ $('Load Contacts').item.json.id }}',\n    '{{ $('messageContents').item.json.messageId }}',\n    'sent',\n    NOW(),\n    '{{ $('Send Email').item.json.response }}', -- A resposta do SMTP (ex: '250 2.0.0 Ok')\n    NULL -- Ou detalhes adicionais se houver\n);",
+        "options": {}
+      },
+      "id": "60eea0a8-2a36-4742-9e18-199a4c073178",
+      "name": "SET enviado = true",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        205
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "67800224",
+        "text": "=📩✅ Emails para o evento {{ $('Get Actual Event Info').item.json.eventName }} enviados com sucesso!",
+        "additionalFields": {}
+      },
+      "id": "69f35055-0513-441e-bea2-5c48f25c3dfe",
+      "name": "Notificação Fim",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        476,
+        -70
+      ],
+      "webhookId": "61ce7800-ce85-444e-8b31-01833d776891",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "QVWNuGeLhVSwaTOz",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "67800224",
+        "text": "=📩🎯 Iniciando envio de emails:\nMODO TEST: {{ $('SessionInfo').item.json.test }}\nEvento: {{ $('Get Actual Event Info').item.json.event_name.split(\" - \").first() }}\nAssunto: {{ $('MessageInfo').item.json.subject }}",
+        "additionalFields": {}
+      },
+      "id": "19056252-4941-455e-a4d4-8db727e97c1b",
+      "name": "Telegram Início",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        -220
+      ],
+      "webhookId": "61ce7800-ce85-444e-8b31-01833d776891",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "QVWNuGeLhVSwaTOz",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "html": "<html>\n\n<body style=\"font-family: Arial, sans-serif; line-height: 1.6; max-width: 600px; margin: 0 auto; color: #333;\">\n    <div style=\"text-align: center; margin-bottom: 20px;\">\n        <img src=\"https://images.sympla.com.br/65a7c55056a8b.png\" alt=\"Header Image\" style=\"max-width: 100%; height: auto; display: block; margin: 0 auto;\">\n    </div>\n    \n    <img src=\"https://n8n.treineinsite.com.br/webhook/pixel?contact_id={{ $('Load Contacts').item.json.id }}&message_id={{ $('messageContents').item.json.messageId }}\" width=\"1\" height=\"1\" style=\"display:none;\" />\n    <p>Olá,</p>\n\n    <p>Se você busca <strong>aprimorar suas habilidades</strong> e se <strong>destacar ainda mais</strong> no setor\n        elétrico, essa é a <strong style=\"color: #0066CC;\">oportunidade que não pode perder!</strong></p>\n\n    <p><strong>Nos dias {{ $('MessageInfo').item.json.data_email_html }}</strong>, acontece presencialmente o <strong\n            style=\"font-size: 1.1em; color: #0066CC;\">PowerTreine em {{ $('Get Actual Event Info').item.json.city }}, {{ $('Get Actual Event Info').item.json.state }}, </strong> com o tema \"{{ $('Get Actual Event Info').item.json.event_name.split(\" - \").last() }}\"<strong></strong>.</p>\n\n    <p style=\"text-align: center; margin: 25px 0;\">\n        <a href=\"https://n8n.treineinsite.com.br/webhook/powertreine?contact_id={{ $('Load Contacts').item.json.id }}&message_id={{ $('messageContents').item.json.messageId }}\"\n            style=\"background-color: #0066CC; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block; box-shadow: 0 3px 6px rgba(0,0,0,0.16);\">\n            👉 CLIQUE AQUI PARA GARANTIR SEU DESCONTO! 👈\n        </a>\n    </p>\n\n    <p>Durante <strong>dois dias de treinamento intensivo</strong>, você terá acesso a <strong>conteúdos práticos e\n            direcionados</strong> sobre proteção e\n        seletividade em projetos de média tensão e geração distribuída.</p>\n\n    <p>Este é o tipo de conhecimento que <strong>vai além da teoria</strong>, com <strong>aplicações reais</strong> que\n        podem impactar diretamente sua\n        carreira e seus projetos.</p>\n\n    <h3 style=\"color: #0066CC; border-bottom: 1px solid #ddd; padding-bottom: 8px;\">Por que participar?</h3>\n    <ul style=\"padding-left: 20px;\">\n        <li><strong>Conteúdo relevante:</strong> Foco em minigeração distribuída e energia fotovoltaica.</li>\n        <li><strong>Instrutores experientes:</strong> Profissionais com vasta experiência no mercado, prontos para\n            compartilhar insights práticos.</li>\n        <li><strong>Aplicabilidade imediata:</strong> Aprenda hoje e aplique diretamente nos seus projetos.</li>\n    </ul>\n\n    <p style=\"text-align: center; margin: 25px 0;\">\n        <a href=\"https://n8n.treineinsite.com.br/webhook/powertreine?id={{ $('Load Contacts').item.json.id }}\"\n            style=\"background-color: #0066CC; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block; box-shadow: 0 3px 6px rgba(0,0,0,0.16);\">\n            👉 GARANTA SUA VAGA AGORA! 👈\n        </a>\n    </p>\n\n    <p>Essa é uma <strong>oportunidade imperdível</strong> para se atualizar, aprimorar suas competências técnicas e\n        investir no seu\n        crescimento profissional.</p>\n\n    <div style=\"background-color: #f8f8f8; padding: 15px; border-radius: 5px; margin: 15px 0;\">\n        <p style=\"margin: 0;\"><strong>Detalhes do evento:</strong></p>\n        <p style=\"margin: 8px 0 0 0;\">📅 <strong>Data:</strong> {{ $('MessageInfo').item.json.data_email_html }}</p>\n        <p style=\"margin: 8px 0 0 0;\">📍 <strong>Local:</strong> {{ $('Get Actual Event Info').item.json.place_name }}</p>\n        <p style=\"margin: 8px 0 0 0;\">⏰ <strong>Horário:</strong> {{ $('MessageInfo').item.json.time }}</p>\n    </div>\n\n    <p>Te vejo ao vivo no <strong>PowerTreine em {{ $('Get Actual Event Info').item.json.city }}!</strong></p>\n\n    <p>Um abraço,<br>\n        <strong>Uriel Horta</strong>\n    </p>\n\n    <hr style=\"margin-top: 30px; border: none; border-top: 1px solid #ddd;\">\n    <p style=\"font-size: 12px; color: #777; text-align: center;\">\n        Para descadastrar-se dessa lista, <a href=\"https://n8n.treineinsite.com.br/webhook/unsubscribe?email={{ $('Load Contacts').item.json.email }}\" style=\"color: #777;\">clique aqui</a>\n    </p>\n\n</body>\n\n</html>"
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        256,
+        130
+      ],
+      "id": "8d653af6-9bc8-430c-9552-be4ca7ce2693",
+      "name": "Build HTML"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO tbl_messages (subject, internal_name, event_id)\nVALUES (\n    '{{ $json.output }}',\n    CONCAT(\n        '[{{$node[\"Get Actual Event Info\"].json.state}} ',\n        '{{$node[\"MessageInfo\"].json.formattedMonthNumber}}-',\n        '{{$node[\"MessageInfo\"].json.formattedFullYear}}]',\n        ' Envio ',\n        (SELECT COALESCE(MAX(id), 0) + 1 FROM tbl_messages)\n    ),\n    '{{ $('Get Actual Event Info').item.json.id }}'\n)\nRETURNING id, '{{ $json.output }}' AS subject;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -624,
+        -20
+      ],
+      "id": "0bb3783d-84c0-4af3-8c32-dfeae5b55592",
+      "name": "Create New Message",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Acessa as informações do evento do nó 'Get Actual Event Info'\n// CORREÇÃO: Usando o nome correto do nó: 'Get Actual Event Info'\nconst eventInfoNodeData = $('Get Actual Event Info').first().json; \n\n// Extrai as strings das datas de início e fim do evento\nconst eventStartDateStr = eventInfoNodeData.event_start_date;\nconst eventEndDateStr = eventInfoNodeData.event_end_date;\n\nlet dataEmailHtml = '';          // Irá conter o formato \"01 e 02 de março\"\nlet formattedMonthNumber = '';   // Irá conter o número do mês formatado (ex: \"05\")\nlet formattedFullYear = '';      // Irá conter o ano completo (ex: \"2025\")\n\n// Verifica se ambas as strings de data existem e não são vazias\nif (eventStartDateStr && eventEndDateStr) {\n  // Cria objetos Date a partir das strings de data\n  const startDate = new Date(eventStartDateStr);\n  const endDate = new Date(eventEndDateStr);\n\n  // Array com os nomes dos meses em português\n  const meses = [\n    'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',\n    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'\n  ];\n\n  // Pega o dia do mês para a data de início e fim, formatando com zero à esquerda (ex: 1 -> \"01\")\n  const diaStart = String(startDate.getDate()).padStart(2, '0');\n  const diaEnd = String(endDate.getDate()).padStart(2, '0');\n  \n  // Pega o nome do mês a partir da data de início (assumindo que o evento ocorre no mesmo mês)\n  const mesNome = meses[startDate.getMonth()];\n\n  // Formata o mês como número (Date.getMonth() retorna 0-11, então adicionamos 1)\n  // e formata com zero à esquerda para garantir 2 dígitos (ex: 5 -> \"05\")\n  formattedMonthNumber = String(startDate.getMonth() + 1).padStart(2, '0');\n  // Pega o ano completo (ex: 2025)\n  formattedFullYear = String(startDate.getFullYear());\n\n  // Constrói a string para 'data_email_html' no formato \"01 e 02 de março\"\n  // Esta lógica é para eventos que começam e terminam no mesmo mês e ano.\n  if (startDate.getMonth() === endDate.getMonth() && startDate.getFullYear() === endDate.getFullYear()) {\n      dataEmailHtml = `${diaStart} e ${diaEnd} de ${mesNome}`;\n  } else {\n      // Caso as datas abranjam meses ou anos diferentes, a lógica aqui pode ser mais complexa.\n      // No entanto, para o formato \"01 e 02 de março\", mantemos a referência do mês da data de início.\n      dataEmailHtml = `${diaStart} e ${diaEnd} de ${mesNome}`; \n  }\n}\n\n// Retorna um novo item JSON com os campos desejados para a saída do nó 'MessageInfo'\nreturn [{\n  json: {\n    // Define o 'subject' usando o 'event_name' do nó 'Get Actual Event Info'.\n    // Adapte 'event_name' para outro campo se o subject for diferente.\n    subject: eventInfoNodeData.event_name, \n    \n    // Campo 'time' com valor fixo conforme seu requisito\n    time: \"das 9h às 18h (ambos os dias)\", \n    \n    // Campo 'data_email_html' com a data formatada\n    data_email_html: dataEmailHtml,\n    \n    // Campos de mês e ano formatados (podem ser usados em outras partes do workflow)\n    formattedMonthNumber: formattedMonthNumber,\n    formattedFullYear: formattedFullYear        \n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1660,
+        180
+      ],
+      "id": "3daa7032-e287-43ee-9832-d6d5124bacb3",
+      "name": "MessageInfo"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Você é um **Gerente de Marketing Sênior**, um especialista altamente qualificado no setor elétrico brasileiro, com profundo conhecimento em **proteção e seletividade**. Sua expertise abrange o desenvolvimento e a entrega de programas de treinamento eficazes para engenheiros eletricistas. Além disso, você é um especialista em marketing digital com forte foco em **copywriting para e-mail**, possuindo um vasto conhecimento na criação de e-mails de alta conversão que já geraram milhares de dólares em vendas. Seu objetivo é aplicar essa combinação única de habilidades para impulsionar campanhas de marketing e iniciativas educacionais bem-sucedidas em sua área. Você deve sempre escrever em português do Brasil.\n\n---\n\n### Orientações para a Criação de Títulos de E-mail\n\nAo criar títulos de e-mail, você deve ser um especialista em:\n\n* **Gerar Curiosidade e Intriga:** Use gatilhos mentais que incentivem a abertura do e-mail, aguçando a curiosidade do leitor sobre o que ele está perdendo ou o que pode ganhar.\n* **Destacar Benefícios Claros e Impactantes:** Foque nos resultados e no valor real que o treinamento oferece, como o **avanço na carreira**, **aumento da empregabilidade**, a **adaptação às novas demandas do setor** (estações de recarga, data centers de IA) e a **resolução de problemas específicos**.\n* **Poder da Transformação:** Sugira uma mudança positiva e significativa na trajetória profissional do leitor após o treinamento.\n* **Exclusividade/Autoridade:** Posicione o treinamento como uma oportunidade única e de alto nível para quem busca se destacar no setor elétrico.\n* **Clareza e Concisão:** Mantenha o título curto, direto e impactante, fácil de ser lido e compreendido rapidamente.\n* **Personalização (Implícita):** Aborde as aspirações e desafios profissionais do público-alvo, mostrando que o conteúdo é feito sob medida para suas necessidades de crescimento.\n* **Linguagem Simples e Direta:** Evite jargões desnecessários ou complexidade que possam confundir o leitor.\n* **Foco na Persuasão:** Cada palavra deve ter o propósito de convencer o leitor a dar o próximo passo (abrir o e-mail e, futuramente, comprar o ingresso).\n* **Conhecimento do Público-Alvo:** Adapte a linguagem e os temas para ressoar diretamente com profissionais e estudantes do setor elétrico, reconhecendo seu desejo de progredir.\n* **Originalidade:** Nunca repetir títulos de e-mail já utilizados.\n* **Terminologia Técnica:** Ao se referir a \"proteção\" no contexto do setor elétrico, sempre utilize o termo completo \"**proteção e seletividade**\". Nunca use \"proteção\" isoladamente para garantir a precisão e especificidade técnica.\n* **Tendências do Setor:** Explore e incorpore as tendências atuais e futuras do setor elétrico, como a **alta demanda por estações de recarga de carros elétricos** e o **crescimento dos data centers de IA**, conectando-as aos benefícios do treinamento e ao crescimento profissional.\n\n---\n\n### Objetivo\n\nSua tarefa é criar um **título de e-mail** para uma campanha de marketing. O objetivo principal do e-mail é persuadir profissionais do setor elétrico (engenheiros elétricos, técnicos e estudantes universitários) a comprar um ingresso para o treinamento presencial chamado **PowerTreine**. O título do e-mail deve ser extremamente atraente e de alta conversão, seguindo as melhores práticas de copywriting, focando em gerar curiosidade e destacar o avanço na carreira.\n\nPara isso, considere os seguintes pontos:\n\n* **Orientação a Benefícios:** Foque nos benefícios diretos ou nos resultados que os participantes obterão com o treinamento, especialmente no contexto das novas demandas do setor e do impacto na carreira.\n* **Curiosidade e Instigação:** Desperte o interesse do destinatário para incentivar a abertura do e-mail, fazendo-o querer saber mais sobre como o treinamento pode transformar sua carreira.\n* **Exclusividade/Autoridade:** Posicione o treinamento como uma oportunidade única e de grande autoridade para o avanço profissional e a adaptação às novas tecnologias.\n* **Clareza e Concisão:** Mantenha-o curto, impactante e fácil de entender.\n* **Personalização (Implícita):** Aborde as aspirações e desafios profissionais do público-alvo (melhora na carreira, empregabilidade), alinhando-os às tendências do setor elétrico (e.g., eletromobilidade, infraestrutura de IA).\n\nFornecerei o seguinte contexto para auxiliar:\n\n**Dados do Evento:**\nNome: {{ $('Get Actual Event Info').item.json.event_name }}\nCidade: {{ $('Get Actual Event Info').item.json.city }} - {{ $('Get Actual Event Info').item.json.state }}\n\n**Contexto:**\n{{ $('Get Actual Event Info').item.json.detail }}\n\n---\n\nObserve que todos os detalhes do evento serão elaborados no corpo do e-mail. Seu único foco é gerar o título de e-mail mais eficaz.\n\nCrucialmente, **verifique sua memória e garanta que o título gerado nunca foi usado antes.**\n\n---\n\n### Saída\n\nA saída deve ser **apenas o título do e-mail**, sem comentários adicionais ou texto. **Evite usar palavras que contenham números.**\nNão deve haver qualquer código html, markdown ou qualquer outro, apenas o texto\n\n-- exemplo do que DEVE ser a saída:\nSP: Proteção e Seletividade - O Conhecimento que Abre Portas em Projetos da Nova Energia\n\n-- exemplo do que NÃO DEVE ser a saída:\n```json¶{\"output\":{\"subject\":\"SP: Proteção e Seletividade - O Conhecimento que Abre Portas em Projetos da Nova Energia\"}}¶```   ",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        -1000,
+        -120
+      ],
+      "id": "210d3e28-0e1b-4856-a0d0-09396a504893",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Get Actual Event Info').item.json.sympla_id }}",
+        "contextWindowLength": 20
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        -852,
+        100
+      ],
+      "id": "a10c9f54-c094-4740-89bc-b2615d5e831a",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8382a73e-03f5-48ca-8131-f1cf115444be",
+              "name": "test",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2100,
+        180
+      ],
+      "id": "3c92de21-1f2c-42fa-9998-dffba2eac6d1",
+      "name": "SessionInfo"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -972,
+        100
+      ],
+      "id": "b072d1f4-5ab4-4b95-89e4-7f899c9df50e",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Q2Z8rxJ4DIxvFgKQ",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE tbl_messages\nset processed = true\nwhere id = '{{ $('messageContents').item.json.messageId }}'",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        256,
+        -70
+      ],
+      "id": "88a064f2-7360-4bb7-a1e5-704e6fa66420",
+      "name": "Postgres",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n    id,\n    processed,\n    subject\nFROM\n    tbl_messages\nORDER BY\n    id DESC -- Ordena os IDs em ordem decrescente (maior primeiro)\nLIMIT 1    -- Limita o resultado a apenas 1 linha (o maior ID)",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1440,
+        180
+      ],
+      "id": "c56df767-4b7c-4367-93d2-6e8bccb83f69",
+      "name": "Get Last Message",
+      "credentials": {
+        "postgres": {
+          "id": "zHh6H1wAznHJ7u8u",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ea01792b-a1fe-4f04-aeec-35986fefdd06",
+              "leftValue": "={{ $json.processed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1220,
+        180
+      ],
+      "id": "b66515c4-0eaf-4d29-b57e-9d97eafe92b7",
+      "name": "Is Processed?"
+    },
+    {
+      "parameters": {
+        "chatId": "67800224",
+        "text": "=📩🏋🏻 Retormando o processo...",
+        "additionalFields": {}
+      },
+      "id": "6c670081-ecb1-484d-91b9-b51bd4498936",
+      "name": "Retomada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        -922,
+        330
+      ],
+      "webhookId": "61ce7800-ce85-444e-8b31-01833d776891",
+      "executeOnce": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "QVWNuGeLhVSwaTOz",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Este nó 'messageContents' agora será simplificado.\n// Ele receberá seu input do nó 'Merge for Message Data'.\n// O item de entrada já virá com 'id' (que é o messageId) e 'subject'.\n\nconst inputItem = items[0].json; // Pega o item que vem do nó Merge.\n\nlet finalSubject = inputItem.subject || ''; // Pega o subject do item de entrada, ou string vazia se não existir.\nlet finalMessageId = inputItem.id;         // Pega o ID do item de entrada (que é o messageId).\n\nreturn [{\n  json: {\n    subject: finalSubject,\n    messageId: finalMessageId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -404,
+        105
+      ],
+      "id": "361780dd-aa54-43c9-a9f2-37434f64126b",
+      "name": "messageContents"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PAWWx51YQsLPNt0p",
+          "mode": "list",
+          "cachedResultName": "[Sympla] ℹ️Get Event Info"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [
+            "mode"
+          ],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -1880,
+        180
+      ],
+      "id": "b2a2b011-5c32-4e84-a411-e786c170c518",
+      "name": "Get Actual Event Info"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "daysInterval": 2,
+              "triggerAtHour": 8,
+              "triggerAtMinute": 57
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2320,
+        180
+      ],
+      "id": "f4378503-9be7-4d30-94f4-b1d402325fe2",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Load Contacts": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Postgres",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Sucesso ao enviar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sucesso ao enviar?": {
+      "main": [
+        [
+          {
+            "node": "Wait 1s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1s": {
+      "main": [
+        [
+          {
+            "node": "SET enviado = true",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SET enviado = true": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HTML": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MessageInfo": {
+      "main": [
+        [
+          {
+            "node": "Get Last Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Create New Message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram Início",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SessionInfo": {
+      "main": [
+        [
+          {
+            "node": "Get Actual Event Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres": {
+      "main": [
+        [
+          {
+            "node": "Notificação Fim",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Last Message": {
+      "main": [
+        [
+          {
+            "node": "Is Processed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Processed?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retomada",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "messageContents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "messageContents": {
+      "main": [
+        [
+          {
+            "node": "Load Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create New Message": {
+      "main": [
+        [
+          {
+            "node": "messageContents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Actual Event Info": {
+      "main": [
+        [
+          {
+            "node": "MessageInfo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "SessionInfo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "03816d87-7f9f-42e2-a2f1-aafc46fd2b74",
+  "meta": {
+    "instanceId": "b7aecd785065c00560272b71e81faeb672a42eb6d3995143b839eb5e1b941d4a"
+  },
+  "id": "9IOhWjUuZy0nRw2k",
+  "tags": [
+    {
+      "createdAt": "2025-05-13T03:03:46.623Z",
+      "updatedAt": "2025-05-13T03:03:46.623Z",
+      "id": "1vazMGVudOeQanvs",
+      "name": "email"
+    }
+  ]
+}
