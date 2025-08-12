@@ -411,7 +411,47 @@ def _update_event_from_sympla() -> None:
     state = (addr.get("state") if isinstance(addr, dict) else None) or selected.get("state") or ""
     place_name = (addr.get("venue") if isinstance(addr, dict) else None) or selected.get("placeName") or ""
 
-    # 3.1) Cupom e link com cupom
+    # 3.1) Datas (formatação humana PT-BR)
+    def _parse_date_ymd(date_str: str) -> tuple[int | None, int | None, int | None]:
+        try:
+            # Tenta formatos comuns do Sympla: 'YYYY-MM-DD HH:MM:SS' ou 'YYYY-MM-DDTHH:MM:SSZ'
+            import re as _re
+            m = _re.match(r"(\d{4})-(\d{2})-(\d{2})", date_str)
+            if not m:
+                return None, None, None
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            return y, mo, d
+        except Exception:
+            return None, None, None
+
+    def _format_ptbr_date_range(start_str: str, end_str: str) -> str:
+        meses = [
+            "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+            "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+        ]
+        y1, m1, d1 = _parse_date_ymd(start_str)
+        y2, m2, d2 = _parse_date_ymd(end_str) if end_str else (y1, m1, d1)
+        # Se não conseguir parsear, mantém original (ou apenas data inicial)
+        if not all(v is not None for v in (y1, m1, d1)):
+            return start_str
+        if not all(v is not None for v in (y2, m2, d2)):
+            y2, m2, d2 = y1, m1, d1
+
+        # Mesmo ano
+        if y1 == y2:
+            # Mesmo mês
+            if m1 == m2:
+                if d1 == d2:
+                    return f"{d1} de {meses[m1-1]}"
+                return f"{d1} e {d2} de {meses[m1-1]}"
+            # Meses diferentes no mesmo ano
+            return f"{d1} de {meses[m1-1]} a {d2} de {meses[m2-1]}"
+        # Anos diferentes
+        return f"{d1} de {meses[m1-1]} de {y1} a {d2} de {meses[m2-1]} de {y2}"
+
+    data_text = _format_ptbr_date_range(start_date, end_date)
+
+    # 3.2) Cupom e link com cupom
     # Ler cupom atual (se existir) do YAML
     current_coupon = ""
     try:
@@ -444,8 +484,7 @@ def _update_event_from_sympla() -> None:
 
     event_link_with_coupon = _with_coupon_param(event_link, coupon)
 
-    # 3.2) Resumo e confirmação
-    data_text = start_date if not end_date or start_date == end_date else f"{start_date} a {end_date}"
+    # 3.3) Resumo e confirmação
     typer.echo("\nResumo do evento selecionado:")
     typer.echo(f"  Nome: {event_name}")
     typer.echo(f"  ID (Sympla): {sympla_id}")

@@ -25,6 +25,76 @@ class EmailService:
         self.report_generator = ReportGenerator(reports_dir=self.config.email_config.get("reports_dir", "reports"))
         self.smtp_manager = SmtpManager(config)
 
+    # ————————————————————————————————————
+    # Assunto via GenAI (opcional) com fallback
+    # ————————————————————————————————————
+    def _build_subject_fallback(self) -> str:
+        try:
+            evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
+            event_name = str(evento_cfg.get("nome") or self.config.content_config.get("titulo") or "PowerTreine").strip()
+            city = str(evento_cfg.get("cidade") or "").strip()
+            uf = str(evento_cfg.get("uf") or evento_cfg.get("state") or "").strip()
+            data_txt = str(evento_cfg.get("data") or "").strip()
+            place = str(evento_cfg.get("local") or "").strip()
+            parts = []
+            if event_name:
+                parts.append(event_name)
+            loc = f"{city} ({uf})" if city and uf else (city or uf)
+            if loc:
+                parts.append(loc)
+            if data_txt:
+                parts.append(data_txt)
+            if place:
+                parts.append(place)
+            subject = " — ".join([p for p in parts if p])
+            # Limitar tamanho amigável para inbox
+            return subject[:90] if subject else "PowerTreine — Novidades do evento"
+        except Exception:
+            return "PowerTreine — Novidades do evento"
+
+    def _maybe_generate_subject(self, existing_subject: str) -> str:
+        # Se já há assunto definido e não está marcado para auto, mantenha
+        try:
+            subject_raw = (existing_subject or "").strip()
+            # Permite forçar geração quando subject == "auto" ou "genai"
+            force_auto = subject_raw.lower() in {"auto", "genai"}
+            if subject_raw and not force_auto:
+                return subject_raw
+
+            # Preparar contexto do evento
+            evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
+            prompt = (
+                "Você é um assistente de marketing. Gere um assunto de email curto (até 60 caracteres), "
+                "direto, em PT-BR, para convidar para um evento técnico. Evite emojis. "
+                "Inclua cidade ou data se agregar valor.\n\n"
+                f"Dados do evento (JSON): {evento_cfg}\n"
+            )
+
+            api_key = None
+            import os as _os
+            api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
+            model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
+            if not api_key:
+                # Sem chave: usa fallback heurístico
+                return self._build_subject_fallback()
+
+            try:
+                # Import atrasado para não quebrar em ambientes sem a lib
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                from langchain_core.messages import HumanMessage
+
+                llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.7)
+                resp = llm.invoke([HumanMessage(content=prompt)])
+                text = getattr(resp, "content", None) or str(resp)
+                text = (text or "").strip().strip('"').strip("'")
+                # Poda tamanho e caracteres de quebra
+                text = " ".join(text.split())[:90]
+                return text or self._build_subject_fallback()
+            except Exception:
+                return self._build_subject_fallback()
+        except Exception:
+            return subject_raw if (existing_subject and existing_subject.strip()) else self._build_subject_fallback()
+
     def send_email_to_test_recipient(self, template: str) -> Dict[str, Any]:
         """Envio simplificado para AMBIENTE de teste: pega 1 destinatário de teste via SQL e envia.
 
@@ -33,7 +103,8 @@ class EmailService:
         from rich.console import Console
         console = Console()
 
-        email_subject = self.config.content_config.get("email", {}).get("subject", "Sem assunto")
+        email_subject_cfg = self.config.content_config.get("email", {}).get("subject", "")
+        email_subject = self._maybe_generate_subject(email_subject_cfg)
         # Resolver template path
         if not template.endswith('.html'):
             template += '.html'
@@ -222,7 +293,8 @@ class EmailService:
             console.print(f"Timeout por tentativa: [cyan]{send_timeout}s[/cyan]")
             console.print(f"Pausa entre lotes: [cyan]{pause_duration_after_attempts}s[/cyan]")
             
-            email_subject = self.config.content_config.get("email", {}).get("subject", "Sem assunto")
+            email_subject_cfg = self.config.content_config.get("email", {}).get("subject", "")
+            email_subject = self._maybe_generate_subject(email_subject_cfg)
             console.print(f"Assunto do email: [bold magenta]'{email_subject}'[/bold magenta]")
 
             if not template.endswith('.html'):
