@@ -1,0 +1,21 @@
+[project]
+name = "email-sender-2"
+version = "0.1.0"
+description = "Treineinsite Email Sender (Postgres-first)"
+requires-python = ">=3.12"
+readme = ""
+authors = [{ name = "Treineinsite" }]
+license = { text = "Proprietary" }
+
+dependencies = [
+  "typer>=0.12",
+  "rich>=13.7",
+  "psycopg[binary]>=3.2",
+]
+
+[project.scripts]
+treineinsite = "email_sender2.cli:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
