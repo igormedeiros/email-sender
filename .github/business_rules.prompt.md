@@ -1,6 +1,6 @@
 # Email Sender - Documentação de Regras de Negócio
 
-_Gerado em: 10 de maio de 2025_
+_Atualizado em: 12 de agosto de 2025_
 
 Este documento descreve as regras de negócio fundamentais, comportamentos e funcionalidades da aplicação Email Sender. Serve como referência para compreender como o sistema opera e quais regras governam seu comportamento.
 

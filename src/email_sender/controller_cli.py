@@ -26,6 +26,49 @@ class SendMode(str, Enum):
 # Criação da aplicação Typer
 app = typer.Typer()
 
+# ————————————————————————————————————
+# Banner ASCII (Treineinsite)
+# ————————————————————————————————————
+def _print_treineinsite_banner() -> None:
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+
+        console = Console()
+
+        ascii_text = Text("""
+████████╗██████╗ ███████╗██╗███╗   ██╗███████╗██╗███╗   ██╗███████╗
+╚══██╔══╝██╔══██╗██╔════╝██║████╗  ██║██╔════╝██║████╗  ██║██╔════╝
+   ██║   ██████╔╝█████╗  ██║██╔██╗ ██║█████╗  ██║██╔██╗ ██║█████╗  
+   ██║   ██╔══██╗██╔══╝  ██║██║╚██╗██║██╔══╝  ██║██║╚██╗██║██╔══╝  
+   ██║   ██║  ██║███████╗██║██║ ╚████║███████╗██║██║ ╚████║███████╗
+   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝
+""".rstrip(), style="bold cyan")
+
+        subtitle = Text("Email Sender CLI • Treineinsite", style="bold white")
+
+        console.print(Panel.fit(ascii_text, border_style="cyan", padding=(1, 2)))
+        console.print(subtitle, justify="center")
+        console.rule(style="cyan")
+    except Exception:
+        # Fallback simples sem Rich
+        print(
+            "\n"+
+            "████████╗██████╗ ███████╗██╗███╗   ██╗███████╗██╗███╗   ██╗███████╗\n"
+            "╚══██╔══╝██╔══██╗██╔════╝██║████╗  ██║██╔════╝██║████╗  ██║██╔════╝\n"
+            "   ██║   ██████╔╝█████╗  ██║██╔██╗ ██║█████╗  ██║██╔██╗ ██║█████╗  \n"
+            "   ██║   ██╔══██╗██╔══╝  ██║██║╚██╗██║██╔══╝  ██║██║╚██╗██║██╔══╝  \n"
+            "   ██║   ██║  ██║███████╗██║██║ ╚████║███████╗██║██║ ╚████║███████╗\n"
+            "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝\n"
+        )
+
+
+@app.callback()
+def _banner_callback() -> None:
+    """Imprime o banner ASCII no início da execução do CLI."""
+    _print_treineinsite_banner()
+
 # Handler de timeout e interrupção
 class TimeoutException(Exception):
     pass
