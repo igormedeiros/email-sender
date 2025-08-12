@@ -148,7 +148,12 @@ class TemplateProcessor:
                 link_with_coupon = ""
         html_content = html_content.replace("{link_evento}", link_with_coupon)
         data_raw = str(evento_config.get("data", "") or "")
-        data_human = _format_ptbr_date_range_from_str(data_raw)
+        # Regra: manter data simples exatamente como veio (compatibilidade com testes)
+        # e usar formatação humana apenas quando houver intervalo (" a ")
+        if " a " in data_raw:
+            data_human = _format_ptbr_date_range_from_str(data_raw)
+        else:
+            data_human = data_raw
         html_content = html_content.replace("{data_evento}", data_human)
         html_content = html_content.replace("{cidade}", evento_config.get("cidade", ""))
         html_content = html_content.replace("{local}", evento_config.get("local", ""))

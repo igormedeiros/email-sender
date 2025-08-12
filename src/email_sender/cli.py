@@ -27,10 +27,14 @@ from .utils.ui import (
     warn as ui_warn,
     error as ui_error,
     section as ui_section,
+    get_console,
 )
 from .config import Config
 from .email_templating import TemplateProcessor
 from datetime import datetime
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
 
 
 def main(
@@ -126,6 +130,9 @@ def get_menu_style() -> Style:
             "env": "fg:#9aa0a6",  # dark grey
             "env_value": "bold ansibrightcyan",  # vibrant cyan
 
+            # Frame/border
+            "frame": "fg:#9aa0a6",
+
             # List items
             "item": "fg:#5f6368",  # grey
             "selected": "bold fg:#0b253a bg:#8ab4f8",  # dark text on light blue
@@ -172,13 +179,25 @@ def _run_interactive_menu(initial_env: str) -> Tuple[str, str]:
     pad_left, pad_right = 2, 2
 
     def _get_menu_text():
+        # Build a framed menu with unicode box drawing
         fragments = []
+        inner_width = pad_left + 2 + max_label_len + pad_right  # 2 for selector + space
+        top = "┌" + ("─" * inner_width) + "┐\n"
+        bottom = "└" + ("─" * inner_width) + "┘\n"
+        fragments.append(("class:frame", top))
         for idx, label in enumerate(menu_items):
             is_sel = idx == state["selected_index"]
-            style_class = "class:selected" if is_sel else "class:item"
-            pill = (" " * pad_left) + label.ljust(max_label_len) + (" " * pad_right)
-            fragments.append((style_class, pill))
-            fragments.append(("", "\n"))
+            pointer = "❯" if is_sel else " "
+            text = f"{' ' * pad_left}{pointer} {label.ljust(max_label_len)}{' ' * pad_right}"
+            fragments.append(("class:frame", "│"))
+            fragments.append((" ", ""))
+            fragments.append((("class:selected" if is_sel else "class:item"), text))
+            fragments.append(("class:frame", "│\n"))
+        fragments.append(("class:frame", bottom))
+        # Controls hint line
+        hint = "↑/↓ Navega  •  Enter Seleciona  •  TAB Alterna ENV"
+        hint_line = "  " + hint + "\n"
+        fragments.append(("class:hint", hint_line))
         return fragments
 
     body_control = FormattedTextControl(_get_menu_text, focusable=True)
@@ -357,9 +376,9 @@ def _update_event_from_sympla() -> None:
     events.sort(key=_parse_date, reverse=True)
     events = events[:3]
 
-    # 2) Escolha interativa
-    # Imprime a lista completa de uma vez, garantindo quebras de linha
-    lines: List[str] = ["", "Selecione o evento a ativar:"]
+    # 2) Escolha interativa (Rich)
+    console = get_console()
+    ui_section("Selecione o evento a ativar")
     def _infer_sympla_code(ev: dict) -> str | None:
         url_val = ev.get("url") or ev.get("event_link") or ""
         if not url_val:
@@ -386,12 +405,19 @@ def _update_event_from_sympla() -> None:
             return f"{base_upper} ({uf})..."
         return f"{base_upper}..."
 
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("#", style="bold", justify="right", width=3)
+    table.add_column("Evento", style="white")
+    table.add_column("Início", style="magenta")
+    table.add_column("ID", style="cyan")
+
     for idx, ev in enumerate(events):
         ev_id = _infer_sympla_code(ev) or ev.get("id") or ev.get("eventId")
         short_title = _format_short_title(ev)
         ev_start = ev.get("start_date") or ev.get("startDate")
-        lines.append(f"  [{idx+1}] {short_title} | {ev_start} | {ev_id}")
-    typer.echo("\n".join(lines) + "\n")
+        table.add_row(str(idx + 1), short_title, str(ev_start), str(ev_id))
+
+    console.print(table)
     raw_choice = typer.prompt("Número do evento", default="1")
     try:
         choice_idx = max(1, min(len(events), int(str(raw_choice).strip()))) - 1
@@ -499,8 +525,13 @@ def _update_event_from_sympla() -> None:
     except Exception:
         current_coupon = ""
 
-    coupon = typer.prompt("Código de cupom (opcional)", default=current_coupon or "")
-    coupon = coupon.strip()
+    # Tornar o cupom obrigatório para que o link do evento sempre tenha o parâmetro por padrão
+    while True:
+        default_value = current_coupon or ""
+        coupon = typer.prompt("Código de cupom (obrigatório)", default=default_value).strip()
+        if coupon:
+            break
+        ui_warn("O cupom é obrigatório para seguirmos. Informe um código válido.")
 
     # Montar link com parâmetro de cupom 'd'
     def _with_coupon_param(url_str: str, code: str) -> str:
@@ -520,16 +551,19 @@ def _update_event_from_sympla() -> None:
 
     event_link_with_coupon = _with_coupon_param(event_link, coupon)
 
-    # 3.3) Resumo e confirmação
-    typer.echo("\nResumo do evento selecionado:")
-    typer.echo(f"  Nome: {event_name}")
-    typer.echo(f"  ID (Sympla): {sympla_id}")
-    typer.echo(f"  Data: {data_text}")
-    typer.echo(f"  Cidade/UF: {city}/{state}")
-    typer.echo(f"  Local: {place_name}")
-    typer.echo(f"  Link: {event_link_with_coupon}")
-    if coupon:
-        typer.echo(f"  Cupom: {coupon}")
+    # 3.3) Resumo e confirmação (Rich)
+    summary = Table(show_header=False, header_style="bold", box=None)
+    summary.add_column("Campo", style="bold white", no_wrap=True)
+    summary.add_column("Valor", style="cyan")
+    summary.add_row("Nome", event_name)
+    summary.add_row("ID (Sympla)", str(sympla_id))
+    summary.add_row("Data", data_text)
+    summary.add_row("Cidade/UF", f"{city}/{state}")
+    summary.add_row("Local", place_name)
+    summary.add_row("Link", event_link_with_coupon)
+    summary.add_row("Cupom", coupon)
+
+    console.print(Panel(summary, title="Resumo do evento selecionado", title_align="left", border_style="bright_cyan"))
     if not typer.confirm("Confirmar atualização do YAML e Postgres com este evento?", default=True):
         typer.echo("Operação cancelada. Nenhuma alteração aplicada.")
         return

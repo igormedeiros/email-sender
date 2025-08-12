@@ -8,6 +8,7 @@ except Exception:  # pragma: no cover - fallback if not installed
     Figlet = None  # type: ignore
 
 from rich.console import Console
+import requests  # module-level for monkeypatching in tests
 from rich.text import Text
 from rich.progress import (
     Progress,
@@ -39,11 +40,14 @@ def print_banner(ascii_art: str, subtitle: Optional[str] = None) -> None:
 
     # Use light blue (cyan) for the wordmark, without any box/border
     ascii_text = Text(ascii_art.rstrip("\n"), style="bold bright_cyan")
+    # Envolver o banner em uma moldura simples
+    top = Text("┌" + ("─" * 60) + "┐", style="bright_cyan")
+    bottom = Text("└" + ("─" * 60) + "┘", style="bright_cyan")
+    console.print(top, justify="center")
     console.print(ascii_text)
-
     if subtitle:
         console.print(Text(subtitle, style="bright_white"), justify="center")
-
+    console.print(bottom, justify="center")
     console.rule(style="bright_cyan")
 
 
@@ -64,7 +68,11 @@ def build_treineinsite_ascii_art() -> str:
 def section(title: str) -> None:
     """Renders a section divider with a title."""
     console = get_console()
-    console.rule(Text(title, style="bold magenta"))
+    # Seção com canto arredondado visual (unicode)
+    line = "─" * max(10, min(70, len(title) + 8))
+    console.print(Text(f"╭{line}╮", style="bright_cyan"))
+    console.print(Text(f"  {title}", style="bold bright_white"))
+    console.print(Text(f"╰{line}╯", style="bright_cyan"))
 
 
 def info(message: str) -> None:
@@ -95,3 +103,34 @@ def progress(description: str = "Processando...", total: Optional[int] = None) -
         transient=False,
         console=get_console(),
     )
+
+
+def notify_telegram(message: str) -> bool:
+    """Envia uma notificação simples via Telegram Bot, se as variáveis estiverem configuradas.
+
+    Requer: TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID no ambiente.
+    Não lança exceções; falhas são ignoradas silenciosamente para não quebrar o fluxo.
+    """
+    import os
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN")
+    # Support both numeric chat id and @username via envs
+    chat_id = (
+        os.environ.get("TELEGRAM_CHAT_ID")
+        or os.environ.get("TELEGRAM_CHAT")
+        or os.environ.get("TELEGRAM_CHAT_USERNAME")
+    )
+    if not token or not chat_id or not message:
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message}
+    debug = (os.environ.get("TELEGRAM_DEBUG") or "").lower() in {"1","true","yes","on"}
+    try:
+        resp = requests.post(url, json=payload, timeout=5)
+        ok = 200 <= getattr(resp, "status_code", 0) < 300
+        if debug and not ok:
+            get_console().print(f"[yellow]Telegram notify failed:[/yellow] {getattr(resp, 'status_code', 'NA')} for {url}")
+        return ok
+    except Exception as e:
+        if debug:
+            get_console().print(f"[yellow]Telegram notify exception:[/yellow] {e}")
+        return False

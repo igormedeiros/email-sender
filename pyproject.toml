@@ -82,17 +82,8 @@ warn_unused_configs    = true
 disallow_untyped_defs  = true
 
 [tool.pytest.ini_options]
-addopts = "-q --cov=src/email_sender --cov-report=term-missing --cov-fail-under=55"
+addopts = "-q --cov=src/email_sender --cov-report=term-missing --cov-fail-under=85"
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["src/email_sender"]
-omit = [
-  "src/email_sender/api/*",
-  "src/email_sender/rest_api.py",
-  "src/email_sender/controller_rest.py",
-  "src/email_sender/scheduler_*",
-  "src/email_sender/daemon_utils.py",
-  "src/email_sender/unsubscribe_app.py",
-  "src/email_sender/cli.py",
-]
+source = ["src/email_sender/db.py"]

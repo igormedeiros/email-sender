@@ -1,10 +1,8 @@
 import logging
+import json
 import time
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Union, Any
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 import signal
 import math
@@ -25,6 +23,47 @@ class EmailService:
         self.template_processor = TemplateProcessor(config.content_config if hasattr(config, 'content_config') else config)
         self.report_generator = ReportGenerator(reports_dir=self.config.email_config.get("reports_dir", "reports"))
         self.smtp_manager = SmtpManager(config)
+
+    # Carrega o prompt de geração de assunto a partir de arquivo externo
+    def _load_subject_prompt_template(self) -> Optional[str]:
+        try:
+            import os as _os
+            from pathlib import Path as _P
+            prompt_path = _os.environ.get("GENAI_SUBJECT_PROMPT_PATH", "prompts/subject_generation.md")
+            p = _P(prompt_path)
+            if p.exists():
+                return p.read_text(encoding="utf-8")
+        except Exception:
+            return None
+        return None
+
+    def _build_event_brief(self) -> str:
+        """Monta um resumo curto do evento a partir do YAML.
+
+        Formato: "Evento: <nome> • <cidade/UF> • <data> • <local>" (campos opcionais)
+        """
+        try:
+            evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
+            name = str(evento_cfg.get("nome") or "").strip()
+            city = str(evento_cfg.get("cidade") or "").strip()
+            uf = str(evento_cfg.get("uf") or evento_cfg.get("state") or "").strip()
+            date_text = str(evento_cfg.get("data") or "").strip()
+            place = str(evento_cfg.get("local") or "").strip()
+            parts: list[str] = []
+            if name:
+                parts.append(name)
+            if city or uf:
+                loc = f"{city}/{uf}" if city and uf else (city or uf)
+                if loc:
+                    parts.append(loc)
+            if date_text:
+                parts.append(date_text)
+            if place:
+                parts.append(place)
+            brief = " • ".join([p for p in parts if p])
+            return f"Evento: {brief}" if brief else ""
+        except Exception:
+            return ""
 
     # ————————————————————————————————————
     # Assunto via GenAI por padrão (sem hardcode), com fallback derivado de dados
@@ -78,22 +117,48 @@ class EmailService:
                 from langchain_google_genai import ChatGoogleGenerativeAI
                 from langchain_core.messages import HumanMessage
 
-                prompt = (
-                    "Você é um assistente de marketing. Gere um único assunto de email curto (<= 60 caracteres), "
-                    "claro e direto, em PT-BR, para convidar para um evento técnico. Sem emojis. "
-                    "Se útil, inclua cidade ou data. Responda apenas com o assunto.\n\n"
-                    f"Dados do evento (JSON): {evento_cfg}\n"
-                )
-                llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.7, max_retries=max_retries)
+                # Montar contexto textual do evento
+                parts: list[str] = []
+                name = str(evento_cfg.get("nome") or "").strip()
+                city = str(evento_cfg.get("cidade") or "").strip()
+                uf = str(evento_cfg.get("uf") or evento_cfg.get("state") or "").strip()
+                date_text = str(evento_cfg.get("data") or "").strip()
+                place = str(evento_cfg.get("local") or "").strip()
+                link = str(evento_cfg.get("link") or "").strip()
+                if name:
+                    parts.append(f"EVENTO: {name}")
+                if city or uf:
+                    loc = f"{city}/{uf}" if city and uf else (city or uf)
+                    parts.append(f"LOCAL: {loc}")
+                if date_text:
+                    parts.append(f"DATA: {date_text}")
+                if place:
+                    parts.append(f"LOCALIDADE/ESPACO: {place}")
+                if link:
+                    parts.append(f"LINK: {link}")
+                event_ctx = "\n".join(parts) or str(evento_cfg)
+
+                # Carregar prompt externo e injetar contexto; se não houver prompt, não usa LLM
+                tpl = self._load_subject_prompt_template()
+                if not tpl:
+                    raise RuntimeError("subject prompt template missing")
+                if "{CONTEXT}" in tpl or "{VARIATION_HINT}" in tpl:
+                    prompt = tpl.replace("{CONTEXT}", event_ctx).replace("{VARIATION_HINT}", "")
+                else:
+                    prompt = f"{tpl}\n\nCONTEXT:\n{event_ctx}\n"
+
+                # Usar Gemini 2.5 Flash via LangChain
+                llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.6, max_retries=max_retries)
                 resp = llm.invoke([HumanMessage(content=prompt)])
                 text = getattr(resp, "content", None) or str(resp)
                 text = (text or "").strip().strip('"').strip("'")
-                text = text.replace(":", " - ")
                 return " ".join(text.split())[:90]
             except Exception:
                 pass
         # Fallback derivado dos dados
         return self._build_subject_fallback()
+
+    # Guardrails específicos foram removidos do código para evitar hardcode; a qualidade é guiada pelo prompt externo.
 
     def _generate_subject_for_body(self, body_html: str, existing_subject: str | None = None, *, temperature: float = 0.6, variation_hint: str | None = None) -> str:
         """Gera assunto curto com base no corpo renderizado.
@@ -155,47 +220,25 @@ class EmailService:
                     if bullets:
                         context_parts.append("BULLETS: " + "; ".join(bullets))
                     if h2h3:
-                        # h2h3 items include tag name in group, keep only text parts
                         h2h3_texts = [x if isinstance(x, str) else x[1] for x in h2h3]
                         context_parts.append("SECOES: " + "; ".join(h2h3_texts))
                     body_preview = text[:1600]
                     context_parts.append(f"BODY: {body_preview}")
                     ctx = "\n".join(context_parts)
-                    # Permitir prompt externo em prompts/subject_generation.md
-                    def _load_prompt_template() -> str | None:
-                        try:
-                            from pathlib import Path as _P
-                            prompt_path = _os.environ.get("GENAI_SUBJECT_PROMPT_PATH", "prompts/subject_generation.md")
-                            p = _P(prompt_path)
-                            if p.exists():
-                                return p.read_text(encoding="utf-8")
-                        except Exception:
-                            return None
-                        return None
 
-                    tpl = _load_prompt_template()
-                    if tpl:
-                        prompt = tpl.replace("{CONTEXT}", ctx)
-                        if variation_hint:
-                            prompt = prompt.replace("{VARIATION_HINT}", variation_hint)
-                        else:
-                            prompt = prompt.replace("{VARIATION_HINT}", "")
-                    else:
-                        prompt = (
-                            "Você é um copywriter. Gere UM ÚNICO assunto de email em PT-BR (<= 56 caracteres), sem emojis.\n"
-                            "Regras: use 1–2 ganchos reais do conteúdo (DESTAQUES/BULLETS/SECOES), crie curiosidade/benefício concreto,\n"
-                            "evite termos genéricos e proibidos: 'Convite', 'Confira', 'Aprimore', 'Participe', 'Novidades'.\n"
-                            "Não inicie com o nome do evento (ex.: 'PowerTreine'). Não use dois-pontos (:).\n"
-                            "Inclua cidade ou data apenas se acrescentar clareza. Responda apenas com o assunto.\n\n"
-                            f"{ctx}\n"
-                        )
+                    tpl = self._load_subject_prompt_template()
+                    if not tpl:
+                        raise RuntimeError("subject prompt template missing")
+                    prompt = tpl.replace("{CONTEXT}", ctx)
                     if variation_hint:
-                        prompt += f"\nInstrução adicional: {variation_hint}\n"
+                        prompt = prompt.replace("{VARIATION_HINT}", variation_hint)
+                    else:
+                        prompt = prompt.replace("{VARIATION_HINT}", "")
+
                     llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=temperature, max_retries=max_retries)
                     resp = llm.invoke([HumanMessage(content=prompt)])
                     out = getattr(resp, "content", None) or str(resp)
                     out = (out or "").strip().strip('"').strip("'")
-                    out = out.replace(":", " - ")
                     return " ".join(out.split())[:90] or (existing_subject or self._build_subject_fallback())
                 except Exception:
                     pass
@@ -276,7 +319,10 @@ class EmailService:
 
         start_time = time.time()
         try:
-            notify_telegram("🚀 Iniciando envio de email (modo teste)")
+            evt = self._build_event_brief()
+            msg = "🚀 Iniciando envio de email (modo teste)"
+            msg = f"{msg}\n{evt}" if evt else msg
+            notify_telegram(msg)
         except Exception:
             pass
         successful = 0
@@ -334,10 +380,16 @@ class EmailService:
                     generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
                 except Exception:
                     generated = email_subject
+                # Mantém o assunto gerado como está; validação/regra vem do prompt externo
                 # Sempre mostrar o assunto gerado
                 console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
                 # No envio de TESTE, força interação se ativada por env
-                email_subject = self._maybe_interactive_subject(generated, html_content, force=True)
+                email_subject = self._maybe_interactive_subject(
+                    generated,
+                    html_content,
+                    force=True,
+                    show_current_first=False,
+                )
                 self.smtp_manager.send_email(
                     to_email=recipient_email,
                     subject=email_subject,
@@ -415,6 +467,9 @@ class EmailService:
             HTML formatado
         """
         try:
+            # Antes de processar o template, garantir que o link do evento tenha o cupom aplicado
+            # O cupom padrão pode vir do YAML ou do Postgres (evento ativo)
+            self._ensure_event_coupon_and_link()
             # Corrected method call to 'process' and ensure template_path is a Path object
             return self.template_processor.process(Path(template_path), recipient)
         except Exception as e:
@@ -422,6 +477,80 @@ class EmailService:
             if isinstance(e, AttributeError):
                 log.exception("AttributeError details:")
             raise
+
+    def _ensure_event_coupon_and_link(self) -> None:
+        """Garante que `evento.cupom` e `evento.link` estejam consistentes e que o link
+        inclua o parâmetro de cupom `d` por padrão.
+
+        Regras:
+        - Se `evento.cupom` estiver ausente, tenta buscar no Postgres (evento ativo -> detail.cupom)
+        - Se `evento.link` estiver ausente, tenta usar `event_link` do Postgres
+        - Sempre que houver cupom e link, aplica/força `?d=<cupom>` (ou `&d=`) no link
+        """
+        try:
+            evento_cfg = (self.config.email_content or {}).setdefault("evento", {})
+
+            # Leitura atual
+            coupon_code = str(evento_cfg.get("cupom") or "").strip()
+            link_raw = str(evento_cfg.get("link") or "").strip()
+
+            # Helper para aplicar o parâmetro d=<cupom> em uma URL
+            def _with_coupon_param(url_str: str, code: str) -> str:
+                if not url_str:
+                    return url_str
+                if not code:
+                    return url_str
+                try:
+                    from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+                    parts = urlparse(url_str)
+                    q = dict(parse_qsl(parts.query, keep_blank_values=True))
+                    q["d"] = code
+                    new_query = urlencode(q, doseq=True)
+                    return urlunparse((parts.scheme, parts.netloc, parts.path, parts.params, new_query, parts.fragment))
+                except Exception:
+                    joiner = "&" if ("?" in url_str) else "?"
+                    return f"{url_str}{joiner}d={code}"
+
+            # Se faltou qualquer um (cupom ou link), tentar recuperar do Postgres
+            if not coupon_code or not link_raw:
+                try:
+                    with Database(self.config) as db:
+                        row = db.fetch_one("sql/events/select_active_event.sql") or {}
+                        if row:
+                            # Preencher link a partir do DB se ausente
+                            if not link_raw:
+                                link_raw = str(row.get("event_link") or "").strip()
+                            # Extrair cupom de detail (dict ou JSON) se ausente
+                            if not coupon_code:
+                                detail_obj = row.get("detail")
+                                if isinstance(detail_obj, dict):
+                                    coupon_code = str(
+                                        (detail_obj.get("cupom") or detail_obj.get("coupon") or detail_obj.get("d") or "")
+                                    ).strip()
+                                else:
+                                    try:
+                                        if detail_obj:
+                                            parsed = json.loads(detail_obj)
+                                            if isinstance(parsed, dict):
+                                                coupon_code = str(
+                                                    (parsed.get("cupom") or parsed.get("coupon") or parsed.get("d") or "")
+                                                ).strip()
+                                    except Exception:
+                                        pass
+                except Exception:
+                    # Se não conseguir acessar o DB, segue com o que já tem
+                    pass
+
+            # Atualizar YAML em memória com os valores resolvidos
+            if coupon_code:
+                evento_cfg["cupom"] = coupon_code
+            if link_raw:
+                final_link = _with_coupon_param(link_raw, coupon_code) if coupon_code else link_raw
+                evento_cfg["link"] = final_link
+
+        except Exception:
+            # Não bloquear envio por falha ao resolver cupom/link
+            return
 
     def generate_report(self, start_time: float, end_time: float, total_sent: int, successful: int, failed: int) -> Dict[str, Any]:
         """
@@ -452,7 +581,10 @@ class EmailService:
             
             start_time = time.time()
             try:
-                notify_telegram("🚀 Iniciando processo de envio em lote")
+                evt = self._build_event_brief()
+                msg = "🚀 Iniciando processo de envio em lote"
+                msg = f"{msg}\n{evt}" if evt else msg
+                notify_telegram(msg)
             except Exception:
                 pass
             successful = 0
@@ -636,11 +768,16 @@ class EmailService:
                                         generated = self._generate_subject_for_body(html_content, existing_subject=base_subject)
                                     except Exception:
                                         generated = base_subject
+                                    # Mantém o assunto gerado como está; validação/regra vem do prompt externo
                                     # Sempre mostrar o assunto gerado
                                     console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
                                     # Em lote, perguntar no máximo uma vez
                                     if not asked_subject_once:
-                                        email_subject = self._maybe_interactive_subject(generated, html_content)
+                                        email_subject = self._maybe_interactive_subject(
+                                            generated,
+                                            html_content,
+                                            show_current_first=False,
+                                        )
                                         asked_subject_once = True
                                     else:
                                         email_subject = generated
