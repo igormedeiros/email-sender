@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 from .config import Config # Changed to relative import
 from .email_service import EmailService # Changed to relative import
-from .utils.ui import print_banner
+from .utils.ui import print_banner, build_treineinsite_ascii_art
 
 # Configuração do logger
 log = logging.getLogger("email_sender")
@@ -31,16 +31,8 @@ app = typer.Typer()
 # Banner ASCII (Treineinsite)
 # ————————————————————————————————————
 def _print_treineinsite_banner() -> None:
-    ascii_art = (
-        "\n"
-        "████████╗██████╗ ███████╗██╗███╗   ██╗███████╗██╗███╗   ██╗███████╗\n"
-        "╚══██╔══╝██╔══██╗██╔════╝██║████╗  ██║██╔════╝██║████╗  ██║██╔════╝\n"
-        "   ██║   ██████╔╝█████╗  ██║██╔██╗ ██║█████╗  ██║██╔██╗ ██║█████╗  \n"
-        "   ██║   ██╔══██╗██╔══╝  ██║██║╚██╗██║██╔══╝  ██║██║╚██╗██║██╔══╝  \n"
-        "   ██║   ██║  ██║███████╗██║██║ ╚████║███████╗██║██║ ╚████║███████╗\n"
-        "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝\n"
-    )
-    print_banner(ascii_art, subtitle="Email Sender CLI • Treineinsite")
+    ascii_art = build_treineinsite_ascii_art()
+    print_banner(ascii_art, subtitle="Treineinsite • Email Sender CLI")
 
 
 @app.callback()

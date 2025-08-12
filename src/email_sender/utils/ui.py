@@ -42,6 +42,21 @@ def print_banner(ascii_art: str, subtitle: Optional[str] = None) -> None:
     console.rule(style="cyan")
 
 
+def build_treineinsite_ascii_art() -> str:
+    """Returns a modern ASCII wordmark inspired by opencode-style terminals."""
+    return (
+        "\n"
+        "  _______              _           _         _     _       _       _        \n"
+        " |__   __|            | |         (_)       | |   (_)     | |     | |       \n"
+        "    | | _ __ ___  __ _| |_ ___ ___ _  ___   | |_   _  __ _| | __ _| |_ ___  \n"
+        "    | || '__/ _ \\/ _` | __/ __/ __| |/ __|  | __| | |/ _` | |/ _` | __/ _ \\ \n"
+        "    | || | |  __/ (_| | |_\\__ \\__ \\ | (__   | |_  | | (_| | | (_| | ||  __/ \n"
+        "    |_|_|  \\___|\\__,_|\\__|___/___/_|\\___|   \\__| |_|\\__, |_|\\__,_|\\__\\___| \n"
+        "                                                     __/ |                      \n"
+        "                                                    |___/                       \n"
+    )
+
+
 def section(title: str) -> None:
     """Renders a section divider with a title."""
     console = get_console()
