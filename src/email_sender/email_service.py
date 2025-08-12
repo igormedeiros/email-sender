@@ -89,6 +89,67 @@ class EmailService:
         # Fallback derivado dos dados
         return self._build_subject_fallback()
 
+    def _generate_subject_for_body(self, body_html: str, existing_subject: str | None = None) -> str:
+        """Gera assunto curto com base no corpo renderizado.
+
+        - Se houver chave de GenAI, usa LLM para sintetizar um assunto (<= 60 chars)
+        - Fallback: extrai <title>, <h1>, <strong> ou inicia pelo texto plano truncado
+        """
+        try:
+            import re as _re
+            import os as _os
+
+            def _first(pattern: str, text: str) -> str | None:
+                m = _re.search(pattern, text, flags=_re.IGNORECASE | _re.DOTALL)
+                return m.group(1).strip() if m else None
+
+            title = _first(r"<title[^>]*>(.*?)</title>", body_html)
+            h1 = _first(r"<h1[^>]*>(.*?)</h1>", body_html)
+            strong = _first(r"<strong[^>]*>(.*?)</strong>", body_html)
+            # Texto plano (remove scripts/styles e tags)
+            text = _re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", body_html, flags=_re.IGNORECASE)
+            text = _re.sub(r"<[^>]+>", " ", text)
+            text = _re.sub(r"\s+", " ", text).strip()
+
+            api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
+            model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
+            if api_key:
+                try:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    from langchain_core.messages import HumanMessage
+                    context_parts = []
+                    if title:
+                        context_parts.append(f"TITLE: {title}")
+                    if h1 and h1 != title:
+                        context_parts.append(f"H1: {h1}")
+                    if strong:
+                        context_parts.append(f"HIGHLIGHT: {strong}")
+                    body_preview = text[:1600]
+                    context_parts.append(f"BODY: {body_preview}")
+                    ctx = "\n".join(context_parts)
+                    prompt = (
+                        "Gere um assunto de email em PT-BR, curto (<= 60 caracteres), claro e sem emojis, com base no conteúdo abaixo.\n"
+                        "Evite repetir palavras e pontuação excessiva. Responda apenas com o assunto.\n\n"
+                        f"{ctx}\n"
+                    )
+                    llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.6)
+                    resp = llm.invoke([HumanMessage(content=prompt)])
+                    out = getattr(resp, "content", None) or str(resp)
+                    out = (out or "").strip().strip('"').strip("'")
+                    return " ".join(out.split())[:90] or (existing_subject or self._build_subject_fallback())
+                except Exception:
+                    pass
+
+            # Fallback heurístico
+            for cand in [title, h1, strong]:
+                if cand and cand.strip():
+                    return " ".join(cand.split())[:90]
+            if text:
+                return text[:90]
+            return existing_subject or self._build_subject_fallback()
+        except Exception:
+            return existing_subject or self._build_subject_fallback()
+
     def send_email_to_test_recipient(self, template: str) -> Dict[str, Any]:
         """Envio simplificado para AMBIENTE de teste: pega 1 destinatário de teste via SQL e envia.
 
@@ -159,6 +220,11 @@ class EmailService:
             try:
                 console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
                 html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
+                # Gerar assunto baseado no corpo renderizado (por email) se possível
+                try:
+                    email_subject = self._generate_subject_for_body(html_content, existing_subject=email_subject)
+                except Exception:
+                    pass
                 self.smtp_manager.send_email(
                     to_email=recipient_email,
                     subject=email_subject,
@@ -286,8 +352,8 @@ class EmailService:
             console.print(f"Timeout por tentativa: [cyan]{send_timeout}s[/cyan]")
             console.print(f"Pausa entre lotes: [cyan]{pause_duration_after_attempts}s[/cyan]")
             
-            email_subject = self._resolve_subject()
-            console.print(f"Assunto do email: [bold magenta]'{email_subject}'[/bold magenta]")
+            base_subject = self._resolve_subject()
+            console.print(f"Assunto base: [bold magenta]'{base_subject}'[/bold magenta]")
 
             if not template.endswith('.html'):
                 template += '.html'
@@ -441,7 +507,12 @@ class EmailService:
                                     )
                                     signal.alarm(send_timeout)
                                     
-                                    html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
+                                    html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
+                                    # Gerar assunto por email com base no corpo renderizado
+                                    try:
+                                        email_subject = self._generate_subject_for_body(html_content, existing_subject=base_subject)
+                                    except Exception:
+                                        email_subject = base_subject
                                     
                                     self.smtp_manager.send_email(
                                         to_email=recipient_email,
