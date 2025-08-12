@@ -1,15 +1,13 @@
--- Source: n8n/_email_______Sending_Emails_PROD (1).json -> "Create New Message"
--- Variables: $json.output (subject), $('Get Actual Event Info').item.json.id (event_id)
+-- Parameterized version
+-- $1: subject text
+-- $2: state text (ex: 'SP')
+-- $3: month number text (ex: '05')
+-- $4: year text (ex: '2025')
+-- $5: event_id text
 INSERT INTO tbl_messages (subject, internal_name, event_id)
 VALUES (
-    '{{ $json.output }}',
-    CONCAT(
-        '[{{$node["Get Actual Event Info"].json.state}} ',
-        '{{$node["MessageInfo"].json.formattedMonthNumber}}-',
-        '{{$node["MessageInfo"].json.formattedFullYear}}]',
-        ' Envio ',
-        (SELECT COALESCE(MAX(id), 0) + 1 FROM tbl_messages)
-    ),
-    '{{ $('Get Actual Event Info').item.json.id }}'
+    $1,
+    CONCAT('[', $2, ' ', $3, '-', $4, '] Envio ', COALESCE((SELECT MAX(id) + 1 FROM tbl_messages), 1)),
+    $5
 )
-RETURNING id, '{{ $json.output }}' AS subject;
+RETURNING id, subject, processed;

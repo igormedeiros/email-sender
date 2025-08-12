@@ -1,11 +1,7 @@
--- Source: n8n/_email_______Sending_Emails_PROD (1).json -> "SET enviado = true"
--- Variables: contact_id from Load Contacts, messageId, SMTP response
+-- Parameterized version
+-- $1: contact_id (int)
+-- $2: message_id (int)
+-- $3: status text (optional)
+-- $4: details text (optional)
 INSERT INTO tbl_message_logs (contact_id, message_id, event_type, event_timestamp, status, details)
-VALUES (
-    '{{ $('Load Contacts').item.json.id }}',
-    '{{ $('messageContents').item.json.messageId }}',
-    'sent',
-    NOW(),
-    '{{ $('Send Email').item.json.response }}',
-    NULL
-);
+VALUES ($1, $2, 'sent', NOW(), $3, $4);

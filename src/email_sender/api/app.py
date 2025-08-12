@@ -106,16 +106,7 @@ def create_app(config_file: str = "config/rest.yaml") -> Flask:
     if docs_config.get('enabled', True):
         app.register_blueprint(docs_bp, url_prefix=docs_config.get('path', '/api/docs'))
     
-    # Registrar rotas de autenticação
-    if 'auth' in endpoints_config and endpoints_config['auth'].get('enabled', False):
-        auth_config = endpoints_config['auth']
-        from .routes.auth_routes import create_auth_blueprint
-        app.register_blueprint(
-            create_auth_blueprint(
-                base_url=auth_config.get('base_url', '/api/auth'),
-                **auth_config
-            )
-        )
+    # Autenticação opcional desabilitada por padrão; remover se não usada
     
     # Adicionar rota healthcheck
     health_config = endpoints_config.get('health', {})
