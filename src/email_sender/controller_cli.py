@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 from .config import Config # Changed to relative import
 from .email_service import EmailService # Changed to relative import
+from .utils.ui import print_banner
 
 # Configuração do logger
 log = logging.getLogger("email_sender")
@@ -30,38 +31,16 @@ app = typer.Typer()
 # Banner ASCII (Treineinsite)
 # ————————————————————————————————————
 def _print_treineinsite_banner() -> None:
-    try:
-        from rich.console import Console
-        from rich.panel import Panel
-        from rich.text import Text
-
-        console = Console()
-
-        ascii_text = Text("""
-████████╗██████╗ ███████╗██╗███╗   ██╗███████╗██╗███╗   ██╗███████╗
-╚══██╔══╝██╔══██╗██╔════╝██║████╗  ██║██╔════╝██║████╗  ██║██╔════╝
-   ██║   ██████╔╝█████╗  ██║██╔██╗ ██║█████╗  ██║██╔██╗ ██║█████╗  
-   ██║   ██╔══██╗██╔══╝  ██║██║╚██╗██║██╔══╝  ██║██║╚██╗██║██╔══╝  
-   ██║   ██║  ██║███████╗██║██║ ╚████║███████╗██║██║ ╚████║███████╗
-   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝
-""".rstrip(), style="bold cyan")
-
-        subtitle = Text("Email Sender CLI • Treineinsite", style="bold white")
-
-        console.print(Panel.fit(ascii_text, border_style="cyan", padding=(1, 2)))
-        console.print(subtitle, justify="center")
-        console.rule(style="cyan")
-    except Exception:
-        # Fallback simples sem Rich
-        print(
-            "\n"+
-            "████████╗██████╗ ███████╗██╗███╗   ██╗███████╗██╗███╗   ██╗███████╗\n"
-            "╚══██╔══╝██╔══██╗██╔════╝██║████╗  ██║██╔════╝██║████╗  ██║██╔════╝\n"
-            "   ██║   ██████╔╝█████╗  ██║██╔██╗ ██║█████╗  ██║██╔██╗ ██║█████╗  \n"
-            "   ██║   ██╔══██╗██╔══╝  ██║██║╚██╗██║██╔══╝  ██║██║╚██╗██║██╔══╝  \n"
-            "   ██║   ██║  ██║███████╗██║██║ ╚████║███████╗██║██║ ╚████║███████╗\n"
-            "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝\n"
-        )
+    ascii_art = (
+        "\n"
+        "████████╗██████╗ ███████╗██╗███╗   ██╗███████╗██╗███╗   ██╗███████╗\n"
+        "╚══██╔══╝██╔══██╗██╔════╝██║████╗  ██║██╔════╝██║████╗  ██║██╔════╝\n"
+        "   ██║   ██████╔╝█████╗  ██║██╔██╗ ██║█████╗  ██║██╔██╗ ██║█████╗  \n"
+        "   ██║   ██╔══██╗██╔══╝  ██║██║╚██╗██║██╔══╝  ██║██║╚██╗██║██╔══╝  \n"
+        "   ██║   ██║  ██║███████╗██║██║ ╚████║███████╗██║██║ ╚████║███████╗\n"
+        "   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝╚═╝  ╚═══╝╚══════╝\n"
+    )
+    print_banner(ascii_art, subtitle="Email Sender CLI • Treineinsite")
 
 
 @app.callback()
