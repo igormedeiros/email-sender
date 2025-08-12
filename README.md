@@ -38,6 +38,61 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 - pip (gerenciador de pacotes Python)
 - Acesso a um servidor SMTP
 
+## 🚀 Como usar (rápido)
+
+Após instalar e configurar, os comandos principais via CLI são:
+
+- Testar SMTP:
+  ```bash
+  email-sender test-smtp -c config/config.yaml --content config/email.yaml -d
+  # Alternativa sem entrypoint: python -m email_sender.controller_cli test-smtp -c config/config.yaml --content config/email.yaml -d
+  ```
+
+- Enviar emails em modo de teste (usa `config/email.yaml` para `email.template_path`):
+  ```bash
+  email-sender send-emails --mode=test --content config/email.yaml
+  # Opcional: sobrescrever CSV
+  email-sender send-emails --mode=test --csv-file data/test_emails.csv --content config/email.yaml
+  ```
+
+- Enviar emails em produção:
+  ```bash
+  email-sender send-emails --mode=production --content config/email.yaml
+  # Opcional: sobrescrever CSV e arquivo de bounces
+  email-sender send-emails --mode=production --csv-file data/emails_geral.csv --bounces-file data/bounces.csv --content config/email.yaml
+  ```
+
+- Sincronizar descadastros com o CSV principal:
+  ```bash
+  email-sender sync-unsubscribed-command --csv-file data/emails_geral.csv --unsubscribe-file data/descadastros.csv
+  ```
+
+- Sincronizar bounces com o CSV principal:
+  ```bash
+  email-sender sync-bounces-command --csv-file data/emails_geral.csv --bounces-file data/bounces.csv
+  ```
+
+- Limpar flags de envio no CSV:
+  ```bash
+  email-sender clear-sent-flags --csv-file data/emails_geral.csv
+  ```
+
+- Remover duplicados por coluna (padrão `email`):
+  ```bash
+  email-sender remove-duplicates data/emails_geral.csv --column email --keep first
+  ```
+
+- Iniciar API REST:
+  ```bash
+  python -m email_sender.rest_api
+  ```
+
+Para ajuda geral:
+```bash
+email-sender --help
+python -m email_sender.controller_cli --help
+```
+
 ## ⚙️ Instalação
 
 1. Clone o repositório:
@@ -200,7 +255,9 @@ A CLI oferece acesso a todas as funcionalidades principais do sistema através d
 Verifica se as configurações SMTP estão corretas enviando um email de teste:
 
 ```bash
-python -m src.cli test-smtp [--config config/config.yaml] [--content config/email.yaml]
+email-sender test-smtp [--config config/config.yaml] [--content config/email.yaml]
+# Alternativa sem entrypoint
+python -m email_sender.controller_cli test-smtp [--config config/config.yaml] [--content config/email.yaml]
 ```
 
 Parâmetros opcionais:
@@ -220,20 +277,23 @@ Resposta esperada:
 Envie emails usando um template e planilha, especificando obrigatoriamente o modo de envio:
 
 ```bash
-# Modo de teste (arquivo data/test_emails.csv)
-python -m src.cli send-emails templates/email.html --mode=test
+# Modo de teste (lê o caminho do template de config/email.yaml -> email.template_path)
+email-sender send-emails --mode=test
 
 # Modo de produção (arquivo data/emails_geral.csv)
-python -m src.cli send-emails templates/email.html --mode=production
+email-sender send-emails --mode=production
 
 # Especificando arquivo CSV personalizado
-python -m src.cli send-emails templates/email.html --mode=production --csv-file data/minha_lista.csv
+email-sender send-emails --mode=production --csv-file data/minha_lista.csv
 
 # Ignorando sincronização de descadastros e bounces
-python -m src.cli send-emails templates/email.html --mode=production --skip-sync
+email-sender send-emails --mode=production --skip-sync
 
 # Especificando arquivo de bounces personalizado
-python -m src.cli send-emails templates/email.html --mode=production --bounces-file data/meus_bounces.csv
+email-sender send-emails --mode=production --bounces-file data/meus_bounces.csv
+
+# Alternativa sem entrypoint
+python -m email_sender.controller_cli send-emails --mode=test
 ```
 
 Este comando sincroniza automaticamente a lista de descadastros e bounces (a menos que `--skip-sync` seja usado) antes de iniciar o envio, garantindo que emails descadastrados ou com bounce não recebam mensagens.
@@ -283,7 +343,7 @@ Faltam: 0 emails
 Sincroniza manualmente a lista de descadastros com o arquivo principal de emails:
 
 ```bash
-python -m src.cli sync-unsubscribed-command [--csv-file data/emails_geral.csv] [--unsubscribe-file data/descadastros.csv]
+email-sender sync-unsubscribed-command [--csv-file data/emails_geral.csv] [--unsubscribe-file data/descadastros.csv]
 ```
 
 Este comando atualiza a coluna `descadastro` no arquivo principal com base na lista de emails descadastrados. É executado automaticamente antes de cada envio, mas pode ser executado manualmente quando necessário. Ele marcará com "S" os emails que constam na lista de descadastros.
@@ -302,7 +362,7 @@ Além disso, se existirem emails na lista de descadastros que não estão presen
 Sincroniza manualmente a lista de emails de bounce com o arquivo principal de emails:
 
 ```bash
-python -m src.cli sync-bounces-command [--csv-file data/emails_geral.csv] [--bounces-file data/bounces.csv]
+email-sender sync-bounces-command [--csv-file data/emails_geral.csv] [--bounces-file data/bounces.csv]
 ```
 
 Este comando atualiza a coluna `bounce` no arquivo principal com base na lista de emails de bounce. Ele marcará com "S" os emails que constam na lista de bounces. É executado automaticamente antes de cada envio de produção (a menos que `--skip-sync` seja usado), mas pode ser executado manualmente.
@@ -319,7 +379,7 @@ Parâmetros opcionais:
 Reseta o status de todos os emails na planilha, permitindo o reenvio para todos os contatos:
 
 ```bash
-python -m src.cli clear-sent-flags [--csv-file data/emails_geral.csv]
+email-sender clear-sent-flags [--csv-file data/emails_geral.csv]
 ```
 
 Parâmetros opcionais:
@@ -336,16 +396,16 @@ Remove linhas duplicadas de um arquivo CSV baseado em uma coluna específica (po
 
 ```bash
 # Remoção básica (usa coluna 'email' e mantém a primeira ocorrência)
-python -m src.cli remove-duplicates data/emails_geral.csv
+email-sender remove-duplicates data/emails_geral.csv
 
 # Especificando a coluna para verificar duplicados
-python -m src.cli remove-duplicates data/emails_geral.csv --column nome
+email-sender remove-duplicates data/emails_geral.csv --column nome
 
 # Escolhendo qual ocorrência manter (primeira ou última)
-python -m src.cli remove-duplicates data/emails_geral.csv --keep last
+email-sender remove-duplicates data/emails_geral.csv --keep last
 
 # Salvando em um novo arquivo em vez de substituir o original
-python -m src.cli remove-duplicates data/emails_geral.csv --output data/emails_sem_duplicados.csv
+email-sender remove-duplicates data/emails_geral.csv --output data/emails_sem_duplicados.csv
 ```
 
 Este comando analisa o arquivo CSV, identifica duplicatas com base na coluna especificada, e mantém apenas uma ocorrência de cada valor único. Antes de modificar o arquivo original, o sistema cria automaticamente um backup de segurança.
@@ -365,7 +425,7 @@ O sistema disponibiliza uma API REST para acessar todas as funcionalidades atrav
 #### Iniciar a API REST
 
 ```bash
-python -m src.rest_api
+python -m email_sender.rest_api
 ```
 
 A API será iniciada conforme as configurações definidas em `config/rest.yaml`. Por padrão, estará disponível em `http://localhost:5000`.

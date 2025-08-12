@@ -26,6 +26,13 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
 5. **Report Generator**: Cria relatórios detalhados das campanhas de email
 6. **Configuration Management**: Configuração externa via arquivos YAML
 
+### 1.3 Diretriz crítica: Sem CSV em operação
+
+- NÃO usar arquivos CSV como fonte de dados em produção ou operação oficial.
+- A fonte canônica de dados é o Postgres, operado pelos fluxos no `n8n/` e queries versionadas em `sql/`.
+- Qualquer menção a CSV neste repositório é legado, para compatibilidade ou desenvolvimento local, e NÃO deve ser usada em pipelines oficiais.
+- Descadastros, bounces, seleções de contatos, logs de mensagens e pontuações de leads são sempre lidos/gravados no Postgres.
+
 ## 2. Regras de Gerenciamento de Dados
 
 ### 2.1 Estrutura dos dados de contato
@@ -34,16 +41,12 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
 - flags e tags de status (ex.: unsubscribed, bounce)
 - atributos de personalização (ex.: nome, empresa, cargo)
 
-#### 2.1.1 (Modo CLI baseado em CSV)
-- Colunas esperadas no CSV principal: `email`, `enviado`, `falhou`, `descadastro` (S/""), `bounced` (True/False)
-- Normalização automática: emails convertidos para minúsculas quando `enviado` está vazio
-- Filtragem implícita no processamento: somente linhas com `enviado==""` e `falhou!="ok"` e `descadastro!="S"`
+<!-- Proibido CSV: operação oficial usa Postgres. -->
 
 ### 2.2 Armazenamento
 
-- Dois cenários suportados:
-  - **Workflow n8n (produção)**: Postgres para `tbl_contacts`, `tbl_tags`/`tbl_contact_tags`, `tbl_messages`, `tbl_message_logs`, `tbl_lead_scores`, `tbl_events`.
-  - **CLI Python (CSV)**: arquivos CSV versionados localmente para base de envio; listas de `descadastros.csv` e `bounces.csv` externas.
+- Dados persistidos exclusivamente em Postgres: `tbl_contacts`, `tbl_tags`/`tbl_contact_tags`, `tbl_messages`, `tbl_message_logs`, `tbl_lead_scores`, `tbl_events`.
+- CSVs são proibidos em operação. Se existirem utilitários de CSV, servem apenas para migração/dev e não são parte do fluxo oficial.
 
 ### 2.3 Regras de Segurança de Dados
 
@@ -57,7 +60,7 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
 1. **Processamento em Lotes**: Os emails são processados em tamanhos de lote configuráveis
 2. (removido)
 3. **Normalização de Email**: Todos os endereços de email são convertidos para minúsculas para consistência
-4. **Tratamento de Duplicatas**: O sistema pode identificar e gerenciar endereços de email duplicados
+4. **Tratamento de Duplicatas**: O sistema pode identificar e gerenciar endereços de email duplicados (no Postgres)
 
 ## 3. Regras de Envio de Email
 
@@ -68,13 +71,13 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
    - Carregar configuração
    - Validar origem de dados
    - Validar existência do template
-   - Carregar listas de descadastros e bounces
+   - Consultar descadastros e bounces no Postgres (tags/flags)
 
 2. **Filtragem**:
 
    - Pular contatos já logados como enviados na campanha atual
-   - Pular emails descadastrados
-   - Pular emails com histórico de bounce
+   - Pular emails descadastrados (flag/tag no Postgres)
+   - Pular emails com histórico de bounce (tag no Postgres)
    - Pular endereços de email inválidos
 
 3. **Processamento**:
@@ -107,10 +110,9 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
    - Emails que falham após todas as tentativas são marcados com falha na base
    - O sistema preserva a mensagem de erro específica para solução de problemas
 
-### 3.4 Validação de Emails (modo CLI)
-- Ignorar registros com email ausente, `NaN` ou sem `@` (contabilizados como inválidos)
-- Emails na lista de descadastros ou bounces são pulados e contabilizados como "pulados"
-- Tamanho de lote e pausa entre lotes configuráveis
+### 3.4 Validação de Emails
+- Ignorar endereços inválidos (sem `@` ou malformados)
+- Respeitar flags/tags de descadastro e bounce na base
 
 ### 3.3 Modo de Teste
 
@@ -148,14 +150,14 @@ O Email Sender é uma aplicação robusta projetada para processamento de emails
 
 ### 5.1 Tratamento de Descadastros
 
-1. Antes do envio, o sistema consulta contatos com unsubscribed=true
-2. Emails marcados com "S" na coluna descadastro nunca são enviados
+1. Antes do envio, o sistema consulta contatos com `unsubscribed = true` no Postgres
+2. Descadastro é representado por flag de coluna e/ou tag `Unsubscribed` na base
 3. Emails descadastrados são pulados e reportados nas estatísticas
 
 ### 5.2 Tratamento de Bounces
 
-1. Emails com bounce são rastreados via tags/flags na base
-2. Emails na lista de bounces são pulados durante o processo de envio
+1. Emails com bounce são rastreados via tag `Bounce` na base
+2. Emails com bounce são pulados durante o processo de envio
 3. Os bounces pulados são reportados nas estatísticas
 
 ## 6. Relatórios e Monitoramento
@@ -192,37 +194,25 @@ O sistema fornece uma saída de console rica durante a operação:
 
 ### 7.1 Estrutura de Configuração
 
-O sistema usa arquivos YAML para configuração com estas seções principais:
+Configurações principais (YAML/.env):
 
-1. **Configuração SMTP**:
+1. **SMTP**:
+   - host, port, use_tls, username, password
+   - retry_attempts, retry_delay, send_timeout
 
-   - host: Nome do servidor SMTP
-   - port: Porta do servidor SMTP
-   - use_tls: Booleano para uso de TLS
-   - retry_attempts: Número de tentativas de reenvio
-   - retry_delay: Atraso entre tentativas em segundos
-   - send_timeout: Timeout por tentativa de envio
+2. **Email/Envio**:
+   - sender (nome e endereço)
+   - batch_size, batch_delay, retry_attempts, retry_delay, send_timeout
+   - Sem CSV: não configurar arquivos CSV como fonte oficial de contatos
 
-2. **Configuração de Email**:
-
-   - sender: Endereço de email e nome de exibição do remetente
-   - batch_size: Número de emails por lote
-   - batch_delay: Atraso entre lotes em segundos
-   - csv_file: Caminho do arquivo CSV principal
-   - unsubscribe_file: Caminho da lista de descadastros
-   - test_recipient: Email para testes individuais
-   - test_emails_file: Caminho do arquivo CSV de teste
-
-3. **Configuração de Conteúdo**:
-   - Variáveis de assunto e conteúdo do email
-   - Detalhes do evento
-   - URLs para links de descadastro/cadastro
-   - Detalhes de promoção
-   - Referência do arquivo CSS
+3. **Conteúdo**:
+   - Assunto e template HTML (placeholders)
+   - Variáveis de evento e URLs (ex.: unsubscribe_url, subscribe_url)
+   - CSS externo (inline automático se disponível)
 
 ### 7.2 Ambiente (.env)
-- `ENVIRONMENT`: `prod` ou `test` (em `test`, nunca enviar para base real; usar somente CSV/lista de teste)
-- Postgres: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
+- `ENVIRONMENT`: `prod` ou `test` (em `test`, nunca enviar para base real; selecionar apenas contatos marcados como teste)
+- Postgres: `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` (fonte canônica)
 - Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
 - Nunca commitar `.env`; versionar `.env.sample` com as chaves acima
 
@@ -270,31 +260,23 @@ O sistema usa arquivos YAML para configuração com estas seções principais:
 
 ### 9.1 Interface de Linha de Comando
 
-O sistema fornece uma interface de linha de comando para:
+O sistema fornece uma interface de linha de comando para (sempre operando contra Postgres):
 
 - Enviar emails
 - Executar envios de teste
- 
 - Verificar status
 - Gerar relatórios
 
-### 9.2 API REST (principais endpoints)
-- `POST /api/emails/send` (token): dispara envio em lote; aceita `csv_file`, `template`, `skip_unsubscribed_sync`, `mode=test|production`.
-- `POST /api/emails/test-smtp` (token): envia email de teste para validar SMTP.
-- `POST /api/emails/clear-flags` (admin): limpa flags `enviado`/`falhou` no CSV.
-- `POST /api/emails/sync-unsubscribed` (admin): sincroniza `descadastros.csv` com CSV principal.
-- `GET /api/config` (admin): obtém `config/email.yaml`.
-- `PUT /api/config` (admin): substitui `config/email.yaml` com backup automático.
-- `PATCH /api/config/partial` (admin): atualiza parcialmente `config/email.yaml` com merge recursivo.
+Observação: comandos que manipulam CSV são legados e não fazem parte do fluxo oficial.
 
-### 9.3 CLI (comandos Typer)
-- `send-emails`:
-  - Opções: `--config`, `--content`, `--csv-file`, `--mode=test|production` (padrão vem de `ENVIRONMENT`), `--bounces-file`, `--skip-sync`.
-  - Usa `email.yaml` para `template_path` e assunto; aplica retries, timeouts e pausas entre lotes.
-- `test-smtp`: envia email de teste para `test_recipient` da configuração.
-- `clear-sent-flags`: limpa colunas `enviado`/`falhou` com backup atômico.
-- `sync-unsubscribed-command`: reconcilia `descadastros.csv` no CSV principal (marca `descadastro == 'S'`).
-- `sync-bounces-command`: marca `bounced == True` no CSV principal com base em lista externa.
+### 9.2 API REST (principais endpoints)
+- `POST /api/emails/send` (token): dispara envio em lote sobre a base (template informado).
+- `POST /api/emails/test-smtp` (token): envia email de teste para validar SMTP.
+- `GET /api/config` (admin): obtém configuração de conteúdo.
+- `PUT /api/config` (admin): substitui configuração com backup automático.
+- `PATCH /api/config/partial` (admin): atualiza parcialmente a configuração.
+
+<!-- Proibido CSV: A operação oficial usa Postgres/n8n. Ver queries em sql/. -->
 
 ## 10. Workflows e passos (base n8n — referência para reimplementar em Python CLI)
 

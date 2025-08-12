@@ -4,8 +4,8 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 
-from config import Config
-from email_service import EmailService
+from .config import Config
+from .email_service import EmailService
 
 # Obter a configuração padrão
 config = Config()

@@ -1,22 +1,24 @@
 [project]
-name            = "email-sender"
+name            = "treineinsite"
 version         = "0.1.0"
-description     = "Email sender service for automated notifications"
+description     = "Treineinsite - Email sender (Postgres-first)"
 readme          = "README.md"
 requires-python = ">=3.12"
 
 # (deixa vazio porque vamos instalar tudo via grupos)
 dependencies = [
-    "pandas>=2.2.3",
     "python-dotenv>=1.1.0",
     "pyyaml>=6.0.2",
     "typer>=0.15.3",
+    "rich>=13.0.0",
+    "psycopg[binary]>=3.2",
+    "flask>=3.0",
 ]
 
 # Entry points de CLI
 [project.scripts]
-email-sender = "email_sender.controller_cli:app"
-treineinsite = "email_sender.controller_cli:app"
+treineinsite = "email_sender.cli:app"
+email-sender = "email_sender.cli:app"
 
 # ————————————————————————————
 # Grupos de dependência (PEP 735)
@@ -26,7 +28,6 @@ treineinsite = "email_sender.controller_cli:app"
 default = [
     "uvicorn[standard]",
     "fastapi",
-    "pandas>=2.2.3",
     "pyyaml>=6.0.2",
     "typer>=0.15.3",
     "rich>=13.0.0",
@@ -54,8 +55,12 @@ build-backend = "setuptools.build_meta"
 # Configs de tooling
 # ————————————————————————————
 [tool.setuptools]
-packages     = ["email_sender"]
-package-dir  = {"" = "src"}
+packages = [
+    "email_sender",
+]
+package-dir = {
+    "email_sender" = "src/email_sender",
+}
 
 [tool.black]
 line-length    = 88
