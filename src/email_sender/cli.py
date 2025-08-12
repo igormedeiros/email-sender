@@ -425,29 +425,32 @@ def _update_event_from_sympla() -> None:
             return None, None, None
 
     def _format_ptbr_date_range(start_str: str, end_str: str) -> str:
-        meses = [
-            "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-            "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-        ]
+        try:
+            from babel.dates import format_date as _fmt_date
+        except Exception:
+            # Se Babel não estiver instalado, mantém string original
+            return start_str if (not end_str or start_str == end_str) else f"{start_str} a {end_str}"
+
         y1, m1, d1 = _parse_date_ymd(start_str)
         y2, m2, d2 = _parse_date_ymd(end_str) if end_str else (y1, m1, d1)
-        # Se não conseguir parsear, mantém original (ou apenas data inicial)
         if not all(v is not None for v in (y1, m1, d1)):
             return start_str
         if not all(v is not None for v in (y2, m2, d2)):
             y2, m2, d2 = y1, m1, d1
 
-        # Mesmo ano
+        from datetime import date as _date
+        dt1 = _date(int(y1), int(m1), int(d1))
+        dt2 = _date(int(y2), int(m2), int(d2))
+        m1_name = _fmt_date(dt1, format='MMMM', locale='pt_BR')
+        m2_name = _fmt_date(dt2, format='MMMM', locale='pt_BR')
+
         if y1 == y2:
-            # Mesmo mês
             if m1 == m2:
                 if d1 == d2:
-                    return f"{d1} de {meses[m1-1]}"
-                return f"{d1} e {d2} de {meses[m1-1]}"
-            # Meses diferentes no mesmo ano
-            return f"{d1} de {meses[m1-1]} a {d2} de {meses[m2-1]}"
-        # Anos diferentes
-        return f"{d1} de {meses[m1-1]} de {y1} a {d2} de {meses[m2-1]} de {y2}"
+                    return f"{d1} de {m1_name}"
+                return f"{d1} e {d2} de {m1_name}"
+            return f"{d1} de {m1_name} a {d2} de {m2_name}"
+        return f"{d1} de {m1_name} de {y1} a {d2} de {m2_name} de {y2}"
 
     data_text = _format_ptbr_date_range(start_date, end_date)
 

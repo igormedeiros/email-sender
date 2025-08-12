@@ -84,16 +84,19 @@ class TemplateProcessor:
         def _format_ptbr_date_range_from_str(raw: str) -> str:
             if not raw:
                 return ""
-            meses = [
-                "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-                "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-            ]
+            try:
+                from babel.dates import format_date as _fmt_date
+            except Exception:
+                return raw
             # tenta separar duas partes por ' a '
             parts = [p.strip() for p in re.split(r"\s+a\s+", raw)]
             if len(parts) == 1:
                 y, m, d = _parse_ymd(parts[0])
                 if all(v is not None for v in (y, m, d)):
-                    return f"{d} de {meses[m-1]}"
+                    from datetime import date as _date
+                    dt = _date(int(y), int(m), int(d))
+                    m_name = _fmt_date(dt, format='MMMM', locale='pt_BR')
+                    return f"{d} de {m_name}"
                 return raw
             else:
                 y1, m1, d1 = _parse_ymd(parts[0])
@@ -102,13 +105,18 @@ class TemplateProcessor:
                     return raw
                 if not all(v is not None for v in (y2, m2, d2)):
                     y2, m2, d2 = y1, m1, d1
+                from datetime import date as _date
+                dt1 = _date(int(y1), int(m1), int(d1))
+                dt2 = _date(int(y2), int(m2), int(d2))
+                m1_name = _fmt_date(dt1, format='MMMM', locale='pt_BR')
+                m2_name = _fmt_date(dt2, format='MMMM', locale='pt_BR')
                 if y1 == y2:
                     if m1 == m2:
                         if d1 == d2:
-                            return f"{d1} de {meses[m1-1]}"
-                        return f"{d1} e {d2} de {meses[m1-1]}"
-                    return f"{d1} de {meses[m1-1]} a {d2} de {meses[m2-1]}"
-                return f"{d1} de {meses[m1-1]} de {y1} a {d2} de {meses[m2-1]} de {y2}"
+                            return f"{d1} de {m1_name}"
+                        return f"{d1} e {d2} de {m1_name}"
+                    return f"{d1} de {m1_name} a {d2} de {m2_name}"
+                return f"{d1} de {m1_name} de {y1} a {d2} de {m2_name} de {y2}"
         # Se houver cupom configurado, garantir que o link do evento carregue o cupom (param 'd')
         try:
             from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
