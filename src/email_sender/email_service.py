@@ -12,6 +12,7 @@ import math
 from .config import Config
 from .email_templating import TemplateProcessor
 from .reporting import ReportGenerator
+from .utils.ui import get_console, notify_telegram
 from .smtp_manager import SmtpManager
 from .db import Database
 
@@ -67,7 +68,11 @@ class EmailService:
 
         evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
         api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
-        model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
+        model_name = _os.environ.get("GENAI_MODEL", "gemini-2.5-flash")
+        try:
+            max_retries = int(_os.environ.get("GENAI_MAX_RETRIES", "1"))
+        except Exception:
+            max_retries = 1
         if api_key:
             try:
                 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -79,17 +84,18 @@ class EmailService:
                     "Se útil, inclua cidade ou data. Responda apenas com o assunto.\n\n"
                     f"Dados do evento (JSON): {evento_cfg}\n"
                 )
-                llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.7)
+                llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.7, max_retries=max_retries)
                 resp = llm.invoke([HumanMessage(content=prompt)])
                 text = getattr(resp, "content", None) or str(resp)
                 text = (text or "").strip().strip('"').strip("'")
+                text = text.replace(":", " - ")
                 return " ".join(text.split())[:90]
             except Exception:
                 pass
         # Fallback derivado dos dados
         return self._build_subject_fallback()
 
-    def _generate_subject_for_body(self, body_html: str, existing_subject: str | None = None) -> str:
+    def _generate_subject_for_body(self, body_html: str, existing_subject: str | None = None, *, temperature: float = 0.6, variation_hint: str | None = None) -> str:
         """Gera assunto curto com base no corpo renderizado.
 
         - Se houver chave de GenAI, usa LLM para sintetizar um assunto (<= 60 chars)
@@ -106,13 +112,33 @@ class EmailService:
             title = _first(r"<title[^>]*>(.*?)</title>", body_html)
             h1 = _first(r"<h1[^>]*>(.*?)</h1>", body_html)
             strong = _first(r"<strong[^>]*>(.*?)</strong>", body_html)
+            # Coletar mais sinais: múltiplos <strong>, bullets e headings
+            def _all(pattern: str, text: str, max_items: int = 3) -> list[str]:
+                arr = _re.findall(pattern, text, flags=_re.IGNORECASE | _re.DOTALL)
+                cleaned: list[str] = []
+                for it in arr:
+                    t = _re.sub(r"<[^>]+>", " ", it)
+                    t = _re.sub(r"\s+", " ", t).strip()
+                    if t:
+                        cleaned.append(t)
+                    if len(cleaned) >= max_items:
+                        break
+                return cleaned
+
+            strongs = _all(r"<strong[^>]*>(.*?)</strong>", body_html, max_items=3)
+            bullets = _all(r"<li[^>]*>(.*?)</li>", body_html, max_items=3)
+            h2h3 = _all(r"<(h2|h3)[^>]*>(.*?)</\1>", body_html, max_items=2)
             # Texto plano (remove scripts/styles e tags)
             text = _re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", body_html, flags=_re.IGNORECASE)
             text = _re.sub(r"<[^>]+>", " ", text)
             text = _re.sub(r"\s+", " ", text).strip()
 
             api_key = _os.environ.get("GOOGLE_API_KEY") or _os.environ.get("GENAI_API_KEY")
-            model_name = _os.environ.get("GENAI_MODEL", "gemini-1.5-flash")
+            model_name = _os.environ.get("GENAI_MODEL", "gemini-2.5-flash")
+            try:
+                max_retries = int(_os.environ.get("GENAI_MAX_RETRIES", "1"))
+            except Exception:
+                max_retries = 1
             if api_key:
                 try:
                     from langchain_google_genai import ChatGoogleGenerativeAI
@@ -124,18 +150,52 @@ class EmailService:
                         context_parts.append(f"H1: {h1}")
                     if strong:
                         context_parts.append(f"HIGHLIGHT: {strong}")
+                    if strongs:
+                        context_parts.append("DESTAQUES: " + "; ".join(strongs))
+                    if bullets:
+                        context_parts.append("BULLETS: " + "; ".join(bullets))
+                    if h2h3:
+                        # h2h3 items include tag name in group, keep only text parts
+                        h2h3_texts = [x if isinstance(x, str) else x[1] for x in h2h3]
+                        context_parts.append("SECOES: " + "; ".join(h2h3_texts))
                     body_preview = text[:1600]
                     context_parts.append(f"BODY: {body_preview}")
                     ctx = "\n".join(context_parts)
-                    prompt = (
-                        "Gere um assunto de email em PT-BR, curto (<= 60 caracteres), claro e sem emojis, com base no conteúdo abaixo.\n"
-                        "Evite repetir palavras e pontuação excessiva. Responda apenas com o assunto.\n\n"
-                        f"{ctx}\n"
-                    )
-                    llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=0.6)
+                    # Permitir prompt externo em prompts/subject_generation.md
+                    def _load_prompt_template() -> str | None:
+                        try:
+                            from pathlib import Path as _P
+                            prompt_path = _os.environ.get("GENAI_SUBJECT_PROMPT_PATH", "prompts/subject_generation.md")
+                            p = _P(prompt_path)
+                            if p.exists():
+                                return p.read_text(encoding="utf-8")
+                        except Exception:
+                            return None
+                        return None
+
+                    tpl = _load_prompt_template()
+                    if tpl:
+                        prompt = tpl.replace("{CONTEXT}", ctx)
+                        if variation_hint:
+                            prompt = prompt.replace("{VARIATION_HINT}", variation_hint)
+                        else:
+                            prompt = prompt.replace("{VARIATION_HINT}", "")
+                    else:
+                        prompt = (
+                            "Você é um copywriter. Gere UM ÚNICO assunto de email em PT-BR (<= 56 caracteres), sem emojis.\n"
+                            "Regras: use 1–2 ganchos reais do conteúdo (DESTAQUES/BULLETS/SECOES), crie curiosidade/benefício concreto,\n"
+                            "evite termos genéricos e proibidos: 'Convite', 'Confira', 'Aprimore', 'Participe', 'Novidades'.\n"
+                            "Não inicie com o nome do evento (ex.: 'PowerTreine'). Não use dois-pontos (:).\n"
+                            "Inclua cidade ou data apenas se acrescentar clareza. Responda apenas com o assunto.\n\n"
+                            f"{ctx}\n"
+                        )
+                    if variation_hint:
+                        prompt += f"\nInstrução adicional: {variation_hint}\n"
+                    llm = ChatGoogleGenerativeAI(model=model_name, api_key=api_key, temperature=temperature, max_retries=max_retries)
                     resp = llm.invoke([HumanMessage(content=prompt)])
                     out = getattr(resp, "content", None) or str(resp)
                     out = (out or "").strip().strip('"').strip("'")
+                    out = out.replace(":", " - ")
                     return " ".join(out.split())[:90] or (existing_subject or self._build_subject_fallback())
                 except Exception:
                     pass
@@ -149,6 +209,50 @@ class EmailService:
             return existing_subject or self._build_subject_fallback()
         except Exception:
             return existing_subject or self._build_subject_fallback()
+
+    def _maybe_interactive_subject(self, generated_subject: str, body_html: str, *, force: bool = False, show_current_first: bool = True) -> str:
+        """Pergunta aprovação do assunto e permite regenerar algumas vezes.
+
+        - force=True obriga interação (ignora env), útil em modo de teste.
+        - Caso não seja TTY, retorna o gerado diretamente.
+        """
+        import os as _os
+        interactive = force or ((_os.environ.get("SUBJECT_INTERACTIVE") or "").lower() in {"1","true","yes","on"})
+        if not interactive:
+            return generated_subject
+
+        try:
+            import sys
+            import typer
+            console = get_console()
+            # Se não estiver em TTY, evita interação
+            if not sys.stdin or not sys.stdin.isatty():
+                return generated_subject
+
+            current = generated_subject
+            attempts_left = 2  # total 1 geração + até 2 variações
+            while True:
+                # Evita duplicar a primeira linha se já mostramos antes
+                if show_current_first:
+                    console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{current}[/white]")
+                # Depois da primeira iteração, sempre mostramos
+                show_current_first = True
+                if typer.confirm("Aprovar este assunto?", default=True):
+                    return current
+                if attempts_left <= 0:
+                    console.print("[yellow]Sem tentativas restantes. Mantendo o último assunto gerado.[/yellow]")
+                    return current
+                console.print("[cyan]Gerando outra variação de assunto...[/cyan]")
+                # Gera uma variação pedindo diferença
+                current = self._generate_subject_for_body(
+                    body_html,
+                    existing_subject=current,
+                    temperature=0.9,
+                    variation_hint="gere uma variação diferente do anterior, mais curiosa e com benefício específico"
+                )
+                attempts_left -= 1
+        except Exception:
+            return generated_subject
 
     def send_email_to_test_recipient(self, template: str) -> Dict[str, Any]:
         """Envio simplificado para AMBIENTE de teste: pega 1 destinatário de teste via SQL e envia.
@@ -171,6 +275,10 @@ class EmailService:
                 raise FileNotFoundError(f"Template file not found: {template}")
 
         start_time = time.time()
+        try:
+            notify_telegram("🚀 Iniciando envio de email (modo teste)")
+        except Exception:
+            pass
         successful = 0
         failed = 0
         total_send_attempts = 0
@@ -220,11 +328,16 @@ class EmailService:
             try:
                 console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
                 html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
-                # Gerar assunto baseado no corpo renderizado (por email) se possível
+                # Gerar assunto baseado no corpo renderizado (por email) se possível com feedback
+                console.print("[cyan]Gerando assunto com base no conteúdo do email...[/cyan]")
                 try:
-                    email_subject = self._generate_subject_for_body(html_content, existing_subject=email_subject)
+                    generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
                 except Exception:
-                    pass
+                    generated = email_subject
+                # Sempre mostrar o assunto gerado
+                console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
+                # No envio de TESTE, força interação se ativada por env
+                email_subject = self._maybe_interactive_subject(generated, html_content, force=True)
                 self.smtp_manager.send_email(
                     to_email=recipient_email,
                     subject=email_subject,
@@ -258,6 +371,10 @@ class EmailService:
         end_time = time.time()
         report = self.generate_report(start_time, end_time, total_send_attempts, successful, failed)
         report["test_recipient"] = recipient_email
+        try:
+            notify_telegram(f"✅ Envio de teste concluído. Enviado: {successful}, Falhas: {failed}")
+        except Exception:
+            pass
         return report
 
     # Legacy CSV-related methods removed as part of code cleanup.
@@ -334,6 +451,10 @@ class EmailService:
             console.rule("[bold blue]Iniciando Processo de Envio de Emails (Postgres)[bold blue]", style="blue")
             
             start_time = time.time()
+            try:
+                notify_telegram("🚀 Iniciando processo de envio em lote")
+            except Exception:
+                pass
             successful = 0
             failed = 0
             total_send_attempts = 0
@@ -354,6 +475,7 @@ class EmailService:
             
             base_subject = self._resolve_subject()
             console.print(f"Assunto base: [bold magenta]'{base_subject}'[/bold magenta]")
+            asked_subject_once = False
 
             if not template.endswith('.html'):
                 template += '.html'
@@ -508,11 +630,20 @@ class EmailService:
                                     signal.alarm(send_timeout)
                                     
                                     html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
-                                    # Gerar assunto por email com base no corpo renderizado
+                                    # Gerar assunto por email com base no corpo renderizado, com feedback
+                                    console.print("[cyan]Gerando assunto com base no conteúdo do email...[/cyan]")
                                     try:
-                                        email_subject = self._generate_subject_for_body(html_content, existing_subject=base_subject)
+                                        generated = self._generate_subject_for_body(html_content, existing_subject=base_subject)
                                     except Exception:
-                                        email_subject = base_subject
+                                        generated = base_subject
+                                    # Sempre mostrar o assunto gerado
+                                    console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
+                                    # Em lote, perguntar no máximo uma vez
+                                    if not asked_subject_once:
+                                        email_subject = self._maybe_interactive_subject(generated, html_content)
+                                        asked_subject_once = True
+                                    else:
+                                        email_subject = generated
                                     
                                     self.smtp_manager.send_email(
                                         to_email=recipient_email,
@@ -660,6 +791,16 @@ class EmailService:
             report_data = self.generate_report(start_time, end_time, total_send_attempts, successful, failed)
             
             console.print(f"Relatório salvo em: [bold cyan]{report_data.get('report_file', 'N/A')}[/bold cyan]")
+            # Notificação Telegram com sumário
+            try:
+                notify_telegram(
+                    (
+                        f"✅ Envio em lote concluído. Total: {total_records} | "
+                        f"Sucesso: {successful} | Falhas: {failed} | Tempo: {duration:.1f}s"
+                    )
+                )
+            except Exception:
+                pass
             
             return report_data
         
