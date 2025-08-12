@@ -318,13 +318,6 @@ class EmailService:
                 raise FileNotFoundError(f"Template file not found: {template}")
 
         start_time = time.time()
-        try:
-            evt = self._build_event_brief()
-            msg = "🚀 Iniciando envio de email (modo teste)"
-            msg = f"{msg}\n{evt}" if evt else msg
-            notify_telegram(msg)
-        except Exception:
-            pass
         successful = 0
         failed = 0
         total_send_attempts = 0
@@ -390,6 +383,14 @@ class EmailService:
                     force=True,
                     show_current_first=False,
                 )
+                # Notificar início somente após assunto estar definido/aprovado
+                try:
+                    evt = self._build_event_brief()
+                    msg = "🚀 Iniciando envio de email (modo teste)"
+                    msg = f"{msg}\n{evt}" if evt else msg
+                    notify_telegram(msg)
+                except Exception:
+                    pass
                 self.smtp_manager.send_email(
                     to_email=recipient_email,
                     subject=email_subject,
@@ -580,13 +581,6 @@ class EmailService:
             console.rule("[bold blue]Iniciando Processo de Envio de Emails (Postgres)[bold blue]", style="blue")
             
             start_time = time.time()
-            try:
-                evt = self._build_event_brief()
-                msg = "🚀 Iniciando processo de envio em lote"
-                msg = f"{msg}\n{evt}" if evt else msg
-                notify_telegram(msg)
-            except Exception:
-                pass
             successful = 0
             failed = 0
             total_send_attempts = 0
@@ -686,6 +680,7 @@ class EmailService:
                         for i in range(0, len(items), size):
                             yield items[i:i+size]
 
+                    notified_start = False  # only notify start after subject approval/definition
                     for batch_idx, batch_recipients in enumerate(_iter_batches(recipients, configured_batch_size)):
                         if not batch_recipients:
                             continue
@@ -781,6 +776,16 @@ class EmailService:
                                         asked_subject_once = True
                                     else:
                                         email_subject = generated
+                                    # Notificar início do envio em lote após definição/aprovação do assunto (apenas uma vez)
+                                    if not notified_start:
+                                        try:
+                                            evt = self._build_event_brief()
+                                            msg = "🚀 Iniciando processo de envio em lote"
+                                            msg = f"{msg}\n{evt}" if evt else msg
+                                            notify_telegram(msg)
+                                        except Exception:
+                                            pass
+                                        notified_start = True
                                     
                                     self.smtp_manager.send_email(
                                         to_email=recipient_email,
