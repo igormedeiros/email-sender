@@ -381,8 +381,7 @@ def _update_event_from_sympla() -> None:
         name_raw = (ev.get("name") or ev.get("eventName") or "").strip()
         addr = ev.get("address") if isinstance(ev.get("address"), dict) else {}
         uf = (addr.get("state") if isinstance(addr, dict) else None) or ev.get("state") or ""
-        # Base name: normalize PowerTreine when present
-        base_upper = "POWER TREINE" if "power" in name_raw.lower() else (name_raw.split("-")[0].strip() or name_raw).upper()
+        base_upper = (name_raw.split("-")[0].strip() or name_raw).upper()
         if uf:
             return f"{base_upper} ({uf})..."
         return f"{base_upper}..."
@@ -424,6 +423,15 @@ def _update_event_from_sympla() -> None:
         except Exception:
             return None, None, None
 
+    # Locale configurável via env ou YAML (padrão: pt_BR)
+    import os as _os
+    _locale_pref = (
+        _os.environ.get("EVENT_DATE_LOCALE")
+        or _os.environ.get("LOCALE")
+        or (cfg.content_config.get("email", {}).get("locale") if isinstance(cfg.content_config, dict) else None)
+        or "pt_BR"
+    )
+
     def _format_ptbr_date_range(start_str: str, end_str: str) -> str:
         try:
             from babel.dates import format_date as _fmt_date
@@ -441,8 +449,8 @@ def _update_event_from_sympla() -> None:
         from datetime import date as _date
         dt1 = _date(int(y1), int(m1), int(d1))
         dt2 = _date(int(y2), int(m2), int(d2))
-        m1_name = _fmt_date(dt1, format='MMMM', locale='pt_BR')
-        m2_name = _fmt_date(dt2, format='MMMM', locale='pt_BR')
+        m1_name = _fmt_date(dt1, format='MMMM', locale=_locale_pref)
+        m2_name = _fmt_date(dt2, format='MMMM', locale=_locale_pref)
 
         if y1 == y2:
             if m1 == m2:

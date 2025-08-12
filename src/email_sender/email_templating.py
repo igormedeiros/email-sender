@@ -88,6 +88,13 @@ class TemplateProcessor:
                 from babel.dates import format_date as _fmt_date
             except Exception:
                 return raw
+            # Permitir locale configurável via config/email.yaml -> email.locale ou env
+            locale_pref = (
+                self.content_config.get("email", {}).get("locale")
+                if isinstance(self.content_config, dict) else None
+            )
+            import os as _os
+            locale_pref = locale_pref or _os.environ.get("EVENT_DATE_LOCALE") or _os.environ.get("LOCALE") or "pt_BR"
             # tenta separar duas partes por ' a '
             parts = [p.strip() for p in re.split(r"\s+a\s+", raw)]
             if len(parts) == 1:
@@ -95,7 +102,7 @@ class TemplateProcessor:
                 if all(v is not None for v in (y, m, d)):
                     from datetime import date as _date
                     dt = _date(int(y), int(m), int(d))
-                    m_name = _fmt_date(dt, format='MMMM', locale='pt_BR')
+                    m_name = _fmt_date(dt, format='MMMM', locale=locale_pref)
                     return f"{d} de {m_name}"
                 return raw
             else:
@@ -108,8 +115,8 @@ class TemplateProcessor:
                 from datetime import date as _date
                 dt1 = _date(int(y1), int(m1), int(d1))
                 dt2 = _date(int(y2), int(m2), int(d2))
-                m1_name = _fmt_date(dt1, format='MMMM', locale='pt_BR')
-                m2_name = _fmt_date(dt2, format='MMMM', locale='pt_BR')
+                m1_name = _fmt_date(dt1, format='MMMM', locale=locale_pref)
+                m2_name = _fmt_date(dt2, format='MMMM', locale=locale_pref)
                 if y1 == y2:
                     if m1 == m2:
                         if d1 == d2:
