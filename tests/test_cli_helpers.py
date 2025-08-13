@@ -103,7 +103,7 @@ def test_update_event_from_sympla(monkeypatch, tmp_path):
     }]}
     monkeypatch.setattr(cli_mod.requests, "get", lambda *a, **k: DummyResponse(200, payload))
     # patch prompts
-    monkeypatch.setattr(typer, "prompt", lambda *a, **k: "")
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: "1")
     monkeypatch.setattr(typer, "confirm", lambda *a, **k: True)
 
     # patch db
@@ -118,6 +118,7 @@ def test_update_event_from_sympla(monkeypatch, tmp_path):
     monkeypatch.setattr(db_ref, "Database", FakeDB)
 
     cli_mod._update_event_from_sympla()
-    # YAML should be updated
+    # YAML should be updated (with default coupon applied)
     content = content_path.read_text(encoding="utf-8")
     assert "sympla_id" in content
+    assert "cupom: CINA30" in content

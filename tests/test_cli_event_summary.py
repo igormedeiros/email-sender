@@ -47,6 +47,8 @@ def test_event_summary_panel_renders(monkeypatch, tmp_path):
     # Act: run function should not raise
     cli_mod._update_event_from_sympla()
 
-    # Assert YAML updated with place/city/state and human date (render path uses Babel if present)
+    # Assert YAML updated with place/city/state and that default coupon/link are applied
     content = Path(contentp).read_text(encoding="utf-8")
     assert "cidade:" in content and "uf:" in content and "local:" in content
+    assert "cupom: CINA30" in content
+    assert "?d=CINA30" in content
