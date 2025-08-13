@@ -297,8 +297,8 @@ class EmailService:
         except Exception:
             return generated_subject
 
-    def send_email_to_test_recipient(self, template: str) -> Dict[str, Any]:
-        """Envio simplificado para AMBIENTE de teste: pega 1 destinatário de teste via SQL e envia.
+    def send_email_to_test_recipient(self, template: str, limit: int = 1) -> Dict[str, Any]:
+        """Envio simplificado para AMBIENTE de teste: pega até N destinatários de teste via SQL e envia.
 
         Usa as queries em sql/ para criar campanha, selecionar destinatário (modo teste) e registrar log 'sent'.
         """
@@ -356,64 +356,70 @@ class EmailService:
                 # marca como processada e encerra
                 db.execute("sql/messages/mark_message_processed.sql", (message_id,))
                 return {"status": "no_emails", "total_records": 0, "message_id": message_id}
-
-            recipient = recipients[0]
-            recipient_email = str(recipient.get("email", "")).strip()
-            if not recipient_email:
-                db.execute("sql/messages/mark_message_processed.sql", (message_id,))
-                return {"status": "no_emails", "total_records": 0, "message_id": message_id}
-
-            total_send_attempts = 1
-            try:
-                console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
-                html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
-                # Gerar assunto baseado no corpo renderizado (por email) se possível com feedback
-                console.print("[cyan]Gerando assunto com base no conteúdo do email...[/cyan]")
+            # Enviar para até "limit" destinatários de teste
+            total_send_attempts = 0
+            first_recipient_email: str | None = None
+            notified_start = False
+            for recipient in recipients[: max(1, int(limit))]:
+                recipient_email = str(recipient.get("email", "")).strip()
+                if not recipient_email:
+                    continue
+                if first_recipient_email is None:
+                    first_recipient_email = recipient_email
+                total_send_attempts += 1
                 try:
-                    generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
-                except Exception:
-                    generated = email_subject
-                # Mantém o assunto gerado como está; validação/regra vem do prompt externo
-                # Sempre mostrar o assunto gerado
-                console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
-                # No envio de TESTE, força interação se ativada por env
-                email_subject = self._maybe_interactive_subject(
-                    generated,
-                    html_content,
-                    force=True,
-                    show_current_first=False,
-                )
-                # Notificar início somente após assunto estar definido/aprovado
-                try:
-                    evt = self._build_event_brief()
-                    msg = "🚀 Iniciando envio de email (modo teste)"
-                    msg = f"{msg}\n{evt}" if evt else msg
-                    notify_telegram(msg)
-                except Exception:
-                    pass
-                self.smtp_manager.send_email(
-                    to_email=recipient_email,
-                    subject=email_subject,
-                    content=html_content,
-                    is_html=True,
-                )
-                console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]")
-                successful = 1
-                # log 'sent'
-                db.execute(
-                    "sql/messages/insert_message_sent_log.sql",
-                    (recipient.get("id"), message_id, 'OK', ''),
-                )
-            except Exception as e:
-                console.print(f"[red]❌ Falha ao enviar para {recipient_email}: {str(e)}[/red]")
-                failed = 1
-                try:
+                    console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
+                    html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
+                    # Gerar assunto baseado no corpo renderizado (por email) se possível com feedback
+                    console.print("[cyan]Gerando assunto com base no conteúdo do email...[/cyan]")
+                    try:
+                        generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
+                    except Exception:
+                        generated = email_subject
+                    # Mantém o assunto gerado como está; validação/regra vem do prompt externo
+                    # Sempre mostrar o assunto gerado
+                    console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
+                    # No envio de TESTE, força interação se ativada por env (apenas no primeiro)
+                    subj = self._maybe_interactive_subject(
+                        generated,
+                        html_content,
+                        force=True,
+                        show_current_first=False,
+                    )
+                    # Notificar início somente após assunto estar definido/aprovado (uma vez)
+                    if not notified_start:
+                        try:
+                            evt = self._build_event_brief()
+                            msg = "🚀 Iniciando envio de email (modo teste)"
+                            msg = f"{msg}\n{evt}" if evt else msg
+                            notify_telegram(msg)
+                        except Exception:
+                            pass
+                        notified_start = True
+                    self.smtp_manager.send_email(
+                        to_email=recipient_email,
+                        subject=subj,
+                        content=html_content,
+                        is_html=True,
+                    )
+                    console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]
+")
+                    successful += 1
+                    # log 'sent'
                     db.execute(
                         "sql/messages/insert_message_sent_log.sql",
-                        (recipient.get("id"), message_id, 'ERROR', str(e)[:200]),
+                        (recipient.get("id"), message_id, 'OK', ''),
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    console.print(f"[red]❌ Falha ao enviar para {recipient_email}: {str(e)}[/red]")
+                    failed += 1
+                    try:
+                        db.execute(
+                            "sql/messages/insert_message_sent_log.sql",
+                            (recipient.get("id"), message_id, 'ERROR', str(e)[:200]),
+                        )
+                    except Exception:
+                        pass
             finally:
                 # fechar campanha
                 try:
@@ -423,7 +429,8 @@ class EmailService:
 
         end_time = time.time()
         report = self.generate_report(start_time, end_time, total_send_attempts, successful, failed)
-        report["test_recipient"] = recipient_email
+        if first_recipient_email:
+            report["test_recipient"] = first_recipient_email
         try:
             notify_telegram(f"✅ Envio de teste concluído. Enviado: {successful}, Falhas: {failed}")
         except Exception:

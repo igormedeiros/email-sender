@@ -101,7 +101,8 @@ def send_emails(
         # Em ambiente de teste, usar base Postgres (sql/) e segmentação de teste
         if resolved_mode == "test" and not csv_file:
             print("Ambiente de teste detectado — enviando para segmento de teste no Postgres (sql/)...")
-            result = email_service.send_email_to_test_recipient(template_path)
+            # No modo teste, enviar para até 3 contatos de teste (quando disponíveis)
+            result = email_service.send_email_to_test_recipient(template_path, limit=3)
         else:
             # Caminho legado/compatível: permite CSV explícito quando informado
             result = email_service.process_email_sending(
