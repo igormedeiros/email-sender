@@ -525,13 +525,10 @@ def _update_event_from_sympla() -> None:
     except Exception:
         current_coupon = ""
 
-    # Tornar o cupom obrigatório para que o link do evento sempre tenha o parâmetro por padrão
-    while True:
-        default_value = current_coupon or ""
-        coupon = typer.prompt("Código de cupom (obrigatório)", default=default_value).strip()
-        if coupon:
-            break
-        ui_warn("O cupom é obrigatório para seguirmos. Informe um código válido.")
+    # Definir cupom padrão (ex.: CINA30) ao obter as informações do evento
+    # Caso já exista no YAML, mantém; caso contrário, usa DEFAULT_COUPON (env) ou 'CINA30'
+    default_coupon = os.environ.get("DEFAULT_COUPON", "CINA30").strip() or "CINA30"
+    coupon = (current_coupon or default_coupon)
 
     # Montar link com parâmetro de cupom 'd'
     def _with_coupon_param(url_str: str, code: str) -> str:

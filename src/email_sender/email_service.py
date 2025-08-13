@@ -490,6 +490,8 @@ class EmailService:
         """
         try:
             evento_cfg = (self.config.email_content or {}).setdefault("evento", {})
+            # Cupom padrão se nada vier do YAML/DB
+            default_coupon = ( __import__('os').environ.get("DEFAULT_COUPON", "CINA30").strip() or "CINA30" )
 
             # Leitura atual
             coupon_code = str(evento_cfg.get("cupom") or "").strip()
@@ -542,7 +544,9 @@ class EmailService:
                     # Se não conseguir acessar o DB, segue com o que já tem
                     pass
 
-            # Atualizar YAML em memória com os valores resolvidos
+            # Atualizar YAML em memória com os valores resolvidos (cupom com fallback padrão)
+            if not coupon_code:
+                coupon_code = default_coupon
             if coupon_code:
                 evento_cfg["cupom"] = coupon_code
             if link_raw:
