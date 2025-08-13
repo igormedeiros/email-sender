@@ -11,7 +11,17 @@ class ReportGenerator:
         self.reports_dir = Path(reports_dir)
         self.reports_dir.mkdir(exist_ok=True)
 
-    def generate_report(self, start_time: float, end_time: float, total_sent: int, successful: int, failed: int) -> Dict[str, Any]:
+    def generate_report(
+        self,
+        start_time: float,
+        end_time: float,
+        total_sent: int,
+        successful: int,
+        failed: int,
+        *,
+        ignored_unsubscribed: int | None = None,
+        ignored_bounces: int | None = None,
+    ) -> Dict[str, Any]:
         """
         Generates a report of the email sending process.
         """
@@ -23,6 +33,13 @@ class ReportGenerator:
         minutos = int((duration % 3600) // 60)
         segundos = int(duration % 60)
 
+        extra_lines = []
+        if ignored_unsubscribed is not None:
+            extra_lines.append(f"Descadastrados ignorados: {int(ignored_unsubscribed)}")
+        if ignored_bounces is not None:
+            extra_lines.append(f"Bounces ignorados: {int(ignored_bounces)}")
+        extras_block = ("\n" + "\n".join(extra_lines)) if extra_lines else ""
+
         report_content = f"""Relatório de Envio de Emails
 Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
 -----------------------------------------
@@ -31,6 +48,7 @@ Enviados com sucesso: {successful}
 Falhas: {failed}
 Tempo total: {duration:.2f} segundos ({horas}h {minutos}min {segundos}s)
 Tempo médio por email: {avg_time:.2f} segundos
+{extras_block}
 """
         report_file_name = f"email_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         report_path = self.reports_dir / report_file_name
@@ -52,7 +70,9 @@ Tempo médio por email: {avg_time:.2f} segundos
             "total_sent": total_sent,
             "successful": successful,
             "failed": failed,
-            "duracao_formatada": f"{horas}h {minutos}min {segundos}s"
+            "duracao_formatada": f"{horas}h {minutos}min {segundos}s",
+            "ignored_unsubscribed": ignored_unsubscribed,
+            "ignored_bounces": ignored_bounces,
         }
 
     def generate_error_report(self, error_message: str) -> Dict[str, Any]:

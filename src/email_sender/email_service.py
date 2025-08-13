@@ -956,7 +956,15 @@ class EmailService:
             console.print(summary_table)
             
             # Gerar relatório usando o report_generator
-            report_data = self.generate_report(start_time, end_time, total_send_attempts, successful, failed)
+            report_data = self.generate_report(
+                start_time,
+                end_time,
+                total_send_attempts,
+                successful,
+                failed,
+                ignored_unsubscribed=unsub_ignored,
+                ignored_bounces=bounce_ignored,
+            )
             
             console.print(f"Relatório salvo em: [bold cyan]{report_data.get('report_file', 'N/A')}[/bold cyan]")
             # Notificação Telegram com sumário
