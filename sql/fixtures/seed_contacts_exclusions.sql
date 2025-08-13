@@ -5,11 +5,14 @@
 BEGIN;
 
 -- Limpa entradas anteriores deste cenário (idempotente)
-DELETE FROM tbl_contact_tags WHERE contact_id IN (
+-- Apenas remove tags específicas para não violar FKs em logs
+DELETE FROM tbl_contact_tags 
+WHERE contact_id IN (
   SELECT id FROM tbl_contacts WHERE email IN ('igor.medeiros@gmail.com', 'unsub@test.com', 'bounce@test.com')
+)
+AND tag_id IN (
+  SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) IN ('test','unsubscribed','bounce')
 );
-DELETE FROM tbl_contacts
-WHERE email IN ('igor.medeiros@gmail.com', 'unsub@test.com', 'bounce@test.com');
 
 -- Garante as tags necessárias (sem depender de unique constraints)
 INSERT INTO tbl_tags (tag_name)
@@ -18,13 +21,21 @@ WHERE NOT EXISTS (
   SELECT 1 FROM tbl_tags x WHERE LOWER(TRIM(x.tag_name)) = LOWER(TRIM(t.v))
 );
 
--- Insere contatos com flags usadas pelas queries de seleção
--- Colunas padrão (sem depender de is_bounce). Se existir is_buyer, mantém FALSE.
+-- Garante a existência dos contatos (insere se não existir)
 INSERT INTO tbl_contacts (email, unsubscribed, is_buyer)
-VALUES
-    ('igor.medeiros@gmail.com',  FALSE, FALSE),  -- elegível (terá tag 'test')
-    ('unsub@test.com',  TRUE,  FALSE),  -- descadastrado: será ignorado
-    ('bounce@test.com', FALSE, FALSE);  -- bounce: será ignorado (via tag)
+SELECT 'igor.medeiros@gmail.com', FALSE, FALSE
+WHERE NOT EXISTS (SELECT 1 FROM tbl_contacts WHERE email = 'igor.medeiros@gmail.com');
+INSERT INTO tbl_contacts (email, unsubscribed, is_buyer)
+SELECT 'unsub@test.com', TRUE, FALSE
+WHERE NOT EXISTS (SELECT 1 FROM tbl_contacts WHERE email = 'unsub@test.com');
+INSERT INTO tbl_contacts (email, unsubscribed, is_buyer)
+SELECT 'bounce@test.com', FALSE, FALSE
+WHERE NOT EXISTS (SELECT 1 FROM tbl_contacts WHERE email = 'bounce@test.com');
+
+-- Ajusta flags independentemente de já existirem
+UPDATE tbl_contacts SET unsubscribed = FALSE, is_buyer = FALSE WHERE email = 'igor.medeiros@gmail.com';
+UPDATE tbl_contacts SET unsubscribed = TRUE,  is_buyer = FALSE WHERE email = 'unsub@test.com';
+UPDATE tbl_contacts SET unsubscribed = FALSE, is_buyer = FALSE WHERE email = 'bounce@test.com';
 
 -- Vincula tags aos contatos (sem CTE; independente por INSERT)
 -- igor.medeiros@gmail.com -> tag 'test'
