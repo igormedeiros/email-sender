@@ -360,6 +360,7 @@ class EmailService:
             total_send_attempts = 0
             first_recipient_email: str | None = None
             notified_start = False
+            final_subject_for_test: Optional[str] = None
             for recipient in recipients[: max(1, int(limit))]:
                 recipient_email = str(recipient.get("email", "")).strip()
                 if not recipient_email:
@@ -370,22 +371,21 @@ class EmailService:
                 try:
                     console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
                     html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
-                    # Gerar assunto baseado no corpo renderizado (por email) se possível com feedback
-                    console.print("[cyan]Gerando assunto com base no conteúdo do email...[/cyan]")
-                    try:
-                        generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
-                    except Exception:
-                        generated = email_subject
-                    # Mantém o assunto gerado como está; validação/regra vem do prompt externo
-                    # Sempre mostrar o assunto gerado
-                    console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
-                    # No envio de TESTE, força interação se ativada por env (apenas no primeiro)
-                    subj = self._maybe_interactive_subject(
-                        generated,
-                        html_content,
-                        force=True,
-                        show_current_first=False,
-                    )
+                    # Gerar assunto UMA VEZ no modo teste (com base no primeiro email)
+                    if final_subject_for_test is None:
+                        console.print("[cyan]Gerando assunto do teste com base no primeiro email...[/cyan]")
+                        try:
+                            generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
+                        except Exception:
+                            generated = email_subject
+                        console.print(f"[bold cyan]Assunto gerado (teste):[/bold cyan] [white]{generated}[/white]")
+                        final_subject_for_test = self._maybe_interactive_subject(
+                            generated,
+                            html_content,
+                            force=True,
+                            show_current_first=False,
+                        )
+                    subj = final_subject_for_test or email_subject
                     # Notificar início somente após assunto estar definido/aprovado (uma vez)
                     if not notified_start:
                         try:
@@ -619,6 +619,7 @@ class EmailService:
             base_subject = self._resolve_subject()
             console.print(f"Assunto base: [bold magenta]'{base_subject}'[/bold magenta]")
             asked_subject_once = False
+            final_subject_for_batch: Optional[str] = None
 
             if not template.endswith('.html'):
                 template += '.html'
@@ -786,25 +787,20 @@ class EmailService:
                                     signal.alarm(send_timeout)
                                     
                                     html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
-                                    # Gerar assunto por email com base no corpo renderizado, com feedback
-                                    console.print("[cyan]Gerando assunto com base no conteúdo do email...[/cyan]")
-                                    try:
-                                        generated = self._generate_subject_for_body(html_content, existing_subject=base_subject)
-                                    except Exception:
-                                        generated = base_subject
-                                    # Mantém o assunto gerado como está; validação/regra vem do prompt externo
-                                    # Sempre mostrar o assunto gerado
-                                    console.print(f"[bold cyan]Assunto gerado:[/bold cyan] [white]{generated}[/white]")
-                                    # Em lote, perguntar no máximo uma vez
-                                    if not asked_subject_once:
-                                        email_subject = self._maybe_interactive_subject(
+                                    # Gerar assunto UMA ÚNICA VEZ para todo o lote, com base no primeiro corpo
+                                    if final_subject_for_batch is None:
+                                        console.print("[cyan]Gerando assunto do lote com base no conteúdo do primeiro email...[/cyan]")
+                                        try:
+                                            generated = self._generate_subject_for_body(html_content, existing_subject=base_subject)
+                                        except Exception:
+                                            generated = base_subject
+                                        console.print(f"[bold cyan]Assunto gerado (lote):[/bold cyan] [white]{generated}[/white]")
+                                        final_subject_for_batch = self._maybe_interactive_subject(
                                             generated,
                                             html_content,
                                             show_current_first=False,
                                         )
-                                        asked_subject_once = True
-                                    else:
-                                        email_subject = generated
+                                    email_subject = final_subject_for_batch or base_subject
                                     # Notificar início do envio em lote após definição/aprovação do assunto (apenas uma vez)
                                     if not notified_start:
                                         try:
