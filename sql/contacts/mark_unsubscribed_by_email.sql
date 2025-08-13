@@ -1,7 +1,6 @@
--- Source: n8n/_email_____Unsubscribe.json -> "Unsubscribe email"
--- Variables: $json.query.email
+-- Parameterized: $1 is the contact email
 UPDATE tbl_contacts
 SET
     unsubscribed = TRUE,
     updated_at = NOW()
-WHERE email = '{{ $json.query.email }}';
+WHERE LOWER(TRIM(email)) = LOWER(TRIM($1));

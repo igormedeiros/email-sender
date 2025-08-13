@@ -59,8 +59,24 @@ class TemplateProcessor:
             The HTML content with placeholders replaced.
         """
         # URLs from urls_config (derived from self.content_config.get("urls"))
-        html_content = html_content.replace("{unsubscribe_url}", urls_config.get("unsubscribe", ""))
-        html_content = html_content.replace("{subscribe_url}", urls_config.get("subscribe", ""))
+        unsubscribe_base = urls_config.get("unsubscribe", "")
+        subscribe_base = urls_config.get("subscribe", "")
+        html_content = html_content.replace("{unsubscribe_url}", unsubscribe_base)
+        html_content = html_content.replace("{subscribe_url}", subscribe_base)
+
+        # Build full unsubscribe link and a Gmail-safe redirect helper if possible
+        try:
+            recipient_email_val = str(recipient.get('email', ''))
+            if unsubscribe_base and recipient_email_val:
+                unsubscribe_full = f"{unsubscribe_base}?email={recipient_email_val}"
+                # Gmail-safe redirect URL (it may add its own, but we prepare a consistent value)
+                unsubscribe_safe_url = f"https://www.google.com/url?q={unsubscribe_full}"
+                html_content = html_content.replace("{unsubscribe_full}", unsubscribe_full)
+                html_content = html_content.replace("{unsubscribe_safe_url}", unsubscribe_safe_url)
+        except Exception:
+            # If building fails, just strip placeholders
+            html_content = html_content.replace("{unsubscribe_full}", unsubscribe_base)
+            html_content = html_content.replace("{unsubscribe_safe_url}", unsubscribe_base)
 
         # Recipient email (mandatory placeholder)
         if 'email' in recipient:

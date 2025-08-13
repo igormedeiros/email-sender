@@ -476,6 +476,15 @@ class EmailService:
             # Antes de processar o template, garantir que o link do evento tenha o cupom aplicado
             # O cupom padrão pode vir do YAML ou do Postgres (evento ativo)
             self._ensure_event_coupon_and_link()
+            # Garantir URLs padrão (unsubscribe) a partir do domínio público configurado
+            try:
+                email_cfg = self.config.email_config if hasattr(self.config, 'email_config') else {}
+                domain = (email_cfg.get("public_domain") or "").strip()
+                if domain:
+                    urls = self.template_processor.content_config.setdefault("urls", {})
+                    urls.setdefault("unsubscribe", f"https://{domain}/api/unsubscribe")
+            except Exception:
+                pass
             # Corrected method call to 'process' and ensure template_path is a Path object
             return self.template_processor.process(Path(template_path), recipient)
         except Exception as e:
