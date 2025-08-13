@@ -105,7 +105,7 @@ def main(
                 from .db import Database
                 with Database(cfg) as db:
                     db.execute("sql/fixtures/seed_contacts_exclusions.sql")
-                ui_success("Massa de teste criada: valid@test.com (test), unsub@test.com (unsubscribed), bounce@test.com (bounce)")
+                ui_success("Massa de teste criada: igor.medeiros@gmail.com (test), unsub@test.com (unsubscribed), bounce@test.com (bounce)")
             except Exception as e:
                 ui_error(f"Falha ao gerar massa de teste: {e}")
             continue
