@@ -20,7 +20,7 @@ WHERE
         SELECT 1
         FROM tbl_contact_tags AS ctb
         JOIN tbl_tags AS t ON ctb.tag_id = t.id
-        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) = 'bounce'
+        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) IN ('bounce','bouncy')
     )
     AND NOT EXISTS (
         SELECT 1
