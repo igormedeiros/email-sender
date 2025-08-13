@@ -33,6 +33,9 @@ Crie um título de e-mail altamente persuasivo para promover o treinamento prese
 - Comentários adicionais ou explicações
 - Títulos já utilizados anteriormente
 - Termos vagos ou genéricos
+- **Siglas isoladas** (EVs, IA, RH) - sempre use os termos completos
+- **Frases sem conectivos adequados** - toda transição deve ser natural
+- **Jargões técnicos excessivos** que alienem o público
 
 ## CONTEXTO DO E-MAIL
 O e-mail promove um treinamento intensivo de 2 dias sobre:
@@ -70,17 +73,85 @@ O e-mail promove um treinamento intensivo de 2 dias sobre:
 - Retorne APENAS o título do e-mail, sem qualquer formatação adicional, códigos ou explicações.
 - Não use dois-pontos (:). Não use números (por extenso ou dígitos).
 
-## VALIDAÇÃO DE QUALIDADE (OBRIGATÓRIA)
-- O título deve ser uma frase natural, com começo, meio e fim coerentes.
-- Não permitir palavras soltas no início (ex.: apenas a cidade seguida do tema sem conector inadequado).
-- Evitar termos fora de contexto ou construções sem sentido.
-- Se detectar frase truncada, com palavra “sobrando”/fora de lugar, REFAÇA internamente e retorne apenas a versão corrigida.
-- Exemplos a evitar (corrigir internamente):
-  - "Goiânia Proteção e Seletividade - A Expertise Essencial para a Era dos Carros Elétricos"
-    - Correção esperada (exemplo): "Goiânia — Proteção e Seletividade para a Era dos Carros Elétricos"
+### Comprimento e Forma (Obrigatório)
+- Máximo de 70 caracteres.
+- Nunca corte palavras. Se ultrapassar o limite, REESCREVA para caber, mantendo sentido.
+- Não use reticências (…). Não termine com hífen/traço.
+- Finalize sempre em palavra completa e com sentido claro.
+
+## ⚠️ SISTEMA DE VALIDAÇÃO INTERNA OBRIGATÓRIO ⚠️
+
+**ANTES DE RETORNAR O TÍTULO FINAL, EXECUTE ESTAS VERIFICAÇÕES:**
+
+### 1. VERIFICAÇÃO DE INTEGRIDADE:
+- [ ] O título está completo e não foi cortado no meio?
+- [ ] Todas as palavras fazem sentido no contexto?
+- [ ] Não há palavras "sobrando" ou desconectadas?
+- [ ] A frase tem início, meio e fim coerentes?
+- [ ] **TESTE DE FLUIDEZ**: Leia o título em voz alta - ele flui naturalmente?
+- [ ] **TESTE DE CONECTIVOS**: Há transições adequadas entre as partes (e, para, que, etc.)?
+
+### 2. VERIFICAÇÃO DE LINGUAGEM:
+- [ ] Evitou siglas técnicas inadequadas (EVs, IA isoladas)?
+- [ ] Usou termos completos e naturais (carros elétricos, inteligência artificial)?
+- [ ] A linguagem está adequada ao nível profissional do público?
+- [ ] Não há gírias ou expressões informais demais?
+
+### 2. VERIFICAÇÃO DE ESTRUTURA:
+- [ ] A localização está presente e bem conectada?
+- [ ] O termo "proteção e seletividade" está incluído?
+- [ ] Há um benefício profissional claro?
+- [ ] O título desperta curiosidade?
+- [ ] Os elementos estão logicamente organizados?
+
+### 3. VERIFICAÇÃO DE QUALIDADE:
+- [ ] O título flui naturalmente quando lido em voz alta?
+- [ ] Não há repetições desnecessárias?
+- [ ] A linguagem está adequada ao público técnico?
+- [ ] O comprimento está adequado (não muito longo, não muito curto)?
+
+### 4. EXEMPLOS DE PROBLEMAS A DETECTAR E CORRIGIR:
+
+❌ **PROBLEMAS COMUNS:**
+- "Goiânia — Proteção e Seletividade Acelere Sua Carreira em Projetos de Eletromobilidade e G"
+  - **Problema**: Cortado no meio, termina com "e G"
+  - **Correção**: "Goiânia — Proteção e Seletividade para Acelerar Sua Carreira na Eletromobilidade"
+
+- "Goiânia Proteção e Seletividade - A Expertise Essencial para a Era dos Carros Elétricos e"
+  - **Problema**: Termina com "e" sem complemento
+  - **Correção**: "Goiânia — Proteção e Seletividade na Era dos Carros Elétricos"
+
+- "Proteção e Seletividade Goiânia Impulsione"
+  - **Problema**: Palavras desconectadas, sem fluidez
+  - **Correção**: "Goiânia — Proteção e Seletividade para Impulsionar Sua Carreira"
+
+- "Goiânia - Domine Proteção e Seletividade Seja o Engenheiro que o Mercado de EVs e IA Busca"
+  - **Problema**: Falta conectivo entre "Seletividade" e "Seja" + sigla "EVs" inadequada
+  - **Correção**: "Goiânia — Domine Proteção e Seletividade e Seja o Engenheiro que o Mercado Busca"
+
+### 5. PROCESSO DE AUTO-CORREÇÃO:
+Se detectar qualquer problema nas verificações acima:
+1. **PARE** - Não retorne o título defeituoso
+2. **ANALISE** - Identifique exatamente qual é o problema
+3. **RECONSTRUA** - Crie uma versão corrigida que mantenha a intenção original
+4. **TESTE DE LEITURA** - Leia o novo título em voz alta mentalmente
+5. **TESTE NOVAMENTE** - Verifique se a nova versão passa em todas as validações
+6. **RETORNE** - Apenas quando o título estiver perfeito
+
+## ⚠️ REGRA DE OURO ⚠️
+**"Se você não conseguir ler o título em voz alta de forma fluida e natural, ele precisa ser refeito"**
+
+## 🚫 PALAVRAS E EXPRESSÕES PROIBIDAS:
+- EVs (use "carros elétricos" ou "eletromobilidade")  
+- IA isolada (use "inteligência artificial" ou "tecnologia de IA")
+- RH (use "recursos humanos" ou "setor de talentos")
+- Qualquer sigla que possa confundir o leitor
+- Frases que "quebram" no meio sem conectivos
 
 ## INSTRUÇÃO FINAL
 Considerando que o público busca crescimento profissional e se adaptar às novas demandas do setor elétrico (como infraestrutura para carros elétricos e data centers), crie um título que desperte curiosidade máxima sobre como o treinamento pode acelerar a carreira deles.
+
+**LEMBRE-SE**: Execute OBRIGATORIAMENTE todas as verificações de validação antes de retornar o título final. Título malformado, cortado ou com palavras "sobrando" será considerado falha crítica.
 
 ### CONTEXTO
 {CONTEXT}
@@ -88,4 +159,4 @@ Considerando que o público busca crescimento profissional e se adaptar às nova
 ### VARIAÇÃO (opcional)
 {VARIATION_HINT}
 
-**Gere agora um título único e altamente persuasivo:**
+**Gere agora um título único, completo e altamente persuasivo:**
