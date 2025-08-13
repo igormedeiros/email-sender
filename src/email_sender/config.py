@@ -138,6 +138,7 @@ class Config:
             "unsubscribe_file": self.config["email"].get("unsubscribe_file", "data/descadastros.csv"),
             "test_emails_file": test_csv_file,
             "test_csv_file": test_csv_file,
+            "public_domain": self.config["email"].get("public_domain", "mkt.treineinsite.com.br"),
         }
 
     @property

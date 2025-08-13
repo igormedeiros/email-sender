@@ -286,10 +286,11 @@ def _ensure_or_create_default_config() -> Tuple[Path, Path]:
             "  send_timeout: 10\n"
             "email:\n"
             "  sender: \"\"\n"
-            "  batch_size: 10\n"
+            "  batch_size: 200\n"  # número de emails por lote antes de pausar
             "  csv_file: \"data/emails_geral.csv\"\n"
             "  test_recipient: \"\"\n"
-            "  batch_delay: 60\n"
+            "  batch_delay: 5\n"  # pausa (segundos) entre lotes
+            "  public_domain: \"mkt.treineinsite.com.br\"\n"
             "  unsubscribe_file: \"data/descadastros.csv\"\n"
             "  test_emails_file: \"data/test_emails.csv\"\n"
         )
