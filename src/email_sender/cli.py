@@ -97,6 +97,18 @@ def main(
         elif choice == "Auto-teste (diagnóstico geral)":
             _self_test()
             continue
+        elif choice == "Gerar massa de teste (contatos: válido/unsub/bounce)":
+            try:
+                # Executar SQL de seed para criar 3 contatos com tags
+                cfg_path, _ = _ensure_or_create_default_config()
+                cfg = Config(str(cfg_path))
+                from .db import Database
+                with Database(cfg) as db:
+                    db.execute("sql/fixtures/seed_contacts_exclusions.sql")
+                ui_success("Massa de teste criada: valid@test.com (test), unsub@test.com (unsubscribed), bounce@test.com (bounce)")
+            except Exception as e:
+                ui_error(f"Falha ao gerar massa de teste: {e}")
+            continue
         elif choice == "Atualizar dados do evento Sympla":
             try:
                 _update_event_from_sympla()
@@ -151,6 +163,7 @@ def _run_interactive_menu(initial_env: str) -> Tuple[str, str]:
     menu_items: List[str] = [
         "Enviar emails (toda a base)",
         "Auto-teste (diagnóstico geral)",
+        "Gerar massa de teste (contatos: válido/unsub/bounce)",
         "Atualizar dados do evento Sympla",
         "Limpar base de emails (legado/local)",
         "Sair",
