@@ -528,7 +528,12 @@ def _update_event_from_sympla() -> None:
     # Definir cupom padrão (ex.: CINA30) ao obter as informações do evento
     # Caso já exista no YAML, mantém; caso contrário, usa DEFAULT_COUPON (env) ou 'CINA30'
     default_coupon = os.environ.get("DEFAULT_COUPON", "CINA30").strip() or "CINA30"
-    coupon = (current_coupon or default_coupon)
+    def _is_valid_coupon(code: str) -> bool:
+        try:
+            return bool(re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,}$", code or ""))
+        except Exception:
+            return False
+    coupon = current_coupon if _is_valid_coupon(current_coupon) else default_coupon
 
     # Montar link com parâmetro de cupom 'd'
     def _with_coupon_param(url_str: str, code: str) -> str:

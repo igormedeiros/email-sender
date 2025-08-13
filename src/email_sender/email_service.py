@@ -494,6 +494,12 @@ class EmailService:
             default_coupon = ( __import__('os').environ.get("DEFAULT_COUPON", "CINA30").strip() or "CINA30" )
 
             # Leitura atual
+            def _is_valid_coupon(code: str) -> bool:
+                try:
+                    import re as _re
+                    return bool(_re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,}$", code or ""))
+                except Exception:
+                    return False
             coupon_code = str(evento_cfg.get("cupom") or "").strip()
             link_raw = str(evento_cfg.get("link") or "").strip()
 
@@ -545,7 +551,7 @@ class EmailService:
                     pass
 
             # Atualizar YAML em memória com os valores resolvidos (cupom com fallback padrão)
-            if not coupon_code:
+            if not _is_valid_coupon(coupon_code):
                 coupon_code = default_coupon
             if coupon_code:
                 evento_cfg["cupom"] = coupon_code
