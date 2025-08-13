@@ -74,10 +74,24 @@ def test_send_email_to_test_recipient(monkeypatch, tmp_path):
     monkeypatch.setattr(es, "SmtpManager", lambda cfg: FakeSmtpManager(cfg))
 
     svc = EmailService(FakeConfig(tpl))
-    report = svc.send_email_to_test_recipient(str(tpl))
+    # Count subject generation (should be once for test run)
+    from email_sender import email_service as es2
+    calls = {"gen": 0, "maybe": 0}
+    def _fake_generate(self, body_html, existing_subject=None, **kwargs):
+        calls["gen"] += 1
+        return existing_subject or "S"
+    def _fake_maybe(self, generated_subject, body_html, **kwargs):
+        calls["maybe"] += 1
+        return generated_subject
+    monkeypatch.setattr(es2.EmailService, "_generate_subject_for_body", _fake_generate, raising=True)
+    monkeypatch.setattr(es2.EmailService, "_maybe_interactive_subject", _fake_maybe, raising=True)
+    report = svc.send_email_to_test_recipient(str(tpl), limit=2)
     assert report["test_recipient"] == "to@test"
     # Ensure the selection SQL used excludes unsubscribed/bounces/tags per file path
     assert created_dbs and any("select_recipients_for_message.sql" in str(op[1]) for op in created_dbs[0].ops if op[0] == "fetch_all")
+    # Subject generation should be performed once for the test run
+    assert calls["gen"] == 1
+    assert calls["maybe"] == 1
     # Subject should reflect rendered body (title/h1) without needing API
     # Access the patched SmtpManager instance last call via monkeypatch above is not directly accessible here,
     # so we re-create and assert indirectly is not trivial. Instead, ensure the fallback runs without error by checking report keys.

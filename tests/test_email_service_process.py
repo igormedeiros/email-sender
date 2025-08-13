@@ -64,6 +64,16 @@ def test_process_email_sending_success(monkeypatch, tmp_path):
     tpl.write_text("<html><head><title>Convite PT</title></head><body><h1>PowerTreine Goiânia</h1>Hi {email}</body></html>", encoding="utf-8")
 
     monkeypatch.setattr(es, "Database", lambda cfg: FakeDb())
+    # Count subject generation calls (should be ONCE for whole batch)
+    calls = {"gen": 0, "maybe": 0}
+    def _fake_generate(self, body_html, existing_subject=None, **kwargs):
+        calls["gen"] += 1
+        return existing_subject or "S"
+    def _fake_maybe(self, generated_subject, body_html, **kwargs):
+        calls["maybe"] += 1
+        return generated_subject
+    monkeypatch.setattr(es.EmailService, "_generate_subject_for_body", _fake_generate, raising=True)
+    monkeypatch.setattr(es.EmailService, "_maybe_interactive_subject", _fake_maybe, raising=True)
     fake_smtp = FakeSmtp()
     monkeypatch.setattr(es, "SmtpManager", lambda cfg: fake_smtp)
     monkeypatch.setattr(es.time, "sleep", lambda *a, **k: None)
@@ -77,3 +87,6 @@ def test_process_email_sending_success(monkeypatch, tmp_path):
     assert len(fake_smtp.calls) == 2
     # Ensure we used the SQL that excludes unsubscribed/bounces
     assert any("select_contacts_simple.sql" in call[0] for call in db.executed + db.fetches)
+    # Subject should be generated/approved only once for the whole batch
+    assert calls["gen"] == 1
+    assert calls["maybe"] == 1
