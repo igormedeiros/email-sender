@@ -25,38 +25,60 @@ VALUES
     ('unsub@test.com',  TRUE,  FALSE),  -- descadastrado: será ignorado
     ('bounce@test.com', FALSE, FALSE);  -- bounce: será ignorado (via tag)
 
--- Vincula tags aos contatos
-WITH c AS (
-  SELECT id, email FROM tbl_contacts WHERE email IN ('valid@test.com', 'unsub@test.com', 'bounce@test.com')
-),
-tags AS (
-  SELECT id, LOWER(TRIM(tag_name)) AS name FROM tbl_tags WHERE LOWER(TRIM(tag_name)) IN ('test','bounce','unsubscribed')
-)
+-- Vincula tags aos contatos (sem CTE; independente por INSERT)
 -- valid@test.com -> tag 'test'
 INSERT INTO tbl_contact_tags (contact_id, tag_id)
-SELECT c_valid.id, t_test.id
-FROM c c_valid, tags t_test
-WHERE c_valid.email = 'valid@test.com' AND t_test.name = 'test'
-  AND NOT EXISTS (
-    SELECT 1 FROM tbl_contact_tags ct WHERE ct.contact_id = c_valid.id AND ct.tag_id = t_test.id
-  );
+SELECT 
+  (SELECT id FROM tbl_contacts WHERE email = 'valid@test.com'),
+  (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'test')
+WHERE NOT EXISTS (
+  SELECT 1 FROM tbl_contact_tags ct
+  WHERE ct.contact_id = (SELECT id FROM tbl_contacts WHERE email = 'valid@test.com')
+    AND ct.tag_id = (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'test')
+);
 
--- unsub@test.com -> tags 'test' e 'unsubscribed'
+-- unsub@test.com -> tag 'test'
 INSERT INTO tbl_contact_tags (contact_id, tag_id)
-SELECT c_unsub.id, t_tag.id
-FROM c c_unsub, tags t_tag
-WHERE c_unsub.email = 'unsub@test.com' AND t_tag.name IN ('test','unsubscribed')
-  AND NOT EXISTS (
-    SELECT 1 FROM tbl_contact_tags ct WHERE ct.contact_id = c_unsub.id AND ct.tag_id = t_tag.id
-  );
+SELECT 
+  (SELECT id FROM tbl_contacts WHERE email = 'unsub@test.com'),
+  (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'test')
+WHERE NOT EXISTS (
+  SELECT 1 FROM tbl_contact_tags ct
+  WHERE ct.contact_id = (SELECT id FROM tbl_contacts WHERE email = 'unsub@test.com')
+    AND ct.tag_id = (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'test')
+);
 
--- bounce@test.com -> tags 'test' e 'bounce'
+-- unsub@test.com -> tag 'unsubscribed'
 INSERT INTO tbl_contact_tags (contact_id, tag_id)
-SELECT c_b.id, t_tag.id
-FROM c c_b, tags t_tag
-WHERE c_b.email = 'bounce@test.com' AND t_tag.name IN ('test','bounce')
-  AND NOT EXISTS (
-    SELECT 1 FROM tbl_contact_tags ct WHERE ct.contact_id = c_b.id AND ct.tag_id = t_tag.id
-  );
+SELECT 
+  (SELECT id FROM tbl_contacts WHERE email = 'unsub@test.com'),
+  (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'unsubscribed')
+WHERE NOT EXISTS (
+  SELECT 1 FROM tbl_contact_tags ct
+  WHERE ct.contact_id = (SELECT id FROM tbl_contacts WHERE email = 'unsub@test.com')
+    AND ct.tag_id = (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'unsubscribed')
+);
+
+-- bounce@test.com -> tag 'test'
+INSERT INTO tbl_contact_tags (contact_id, tag_id)
+SELECT 
+  (SELECT id FROM tbl_contacts WHERE email = 'bounce@test.com'),
+  (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'test')
+WHERE NOT EXISTS (
+  SELECT 1 FROM tbl_contact_tags ct
+  WHERE ct.contact_id = (SELECT id FROM tbl_contacts WHERE email = 'bounce@test.com')
+    AND ct.tag_id = (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'test')
+);
+
+-- bounce@test.com -> tag 'bounce'
+INSERT INTO tbl_contact_tags (contact_id, tag_id)
+SELECT 
+  (SELECT id FROM tbl_contacts WHERE email = 'bounce@test.com'),
+  (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'bounce')
+WHERE NOT EXISTS (
+  SELECT 1 FROM tbl_contact_tags ct
+  WHERE ct.contact_id = (SELECT id FROM tbl_contacts WHERE email = 'bounce@test.com')
+    AND ct.tag_id = (SELECT id FROM tbl_tags WHERE LOWER(TRIM(tag_name)) = 'bounce')
+);
 
 COMMIT;
