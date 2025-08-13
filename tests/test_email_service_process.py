@@ -16,6 +16,10 @@ class FakeDb:
     def fetch_one(self, sql, params=()):
         if "create_message.sql" in str(sql):
             return {"id": 42}
+        if "count_unsubscribed_since_id.sql" in str(sql):
+            return {"cnt": 1}
+        if "count_bounces_since_id.sql" in str(sql):
+            return {"cnt": 1}
         return None
     def fetch_all(self, sql, params=()):
         # Track which SQL was used

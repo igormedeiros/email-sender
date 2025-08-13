@@ -594,6 +594,8 @@ class EmailService:
             successful = 0
             failed = 0
             total_send_attempts = 0
+            unsub_ignored = 0
+            bounce_ignored = 0
             
             pause_duration_after_attempts = self.config.email_config.get("batch_delay", 60)
             retry_attempts_config = self.config.email_config.get("retry_attempts", 3)
@@ -638,6 +640,18 @@ class EmailService:
                     last_id = int(str((last_sent_row.get("state_value") or "0").strip()))
                 except Exception:
                     last_id = 0
+
+                # Contagens auxiliares: descadastrados e bounces (ignorados nesta execução)
+                try:
+                    unsub_row = db.fetch_one("sql/contacts/count_unsubscribed_since_id.sql", (last_id,)) or {"cnt": 0}
+                    unsub_ignored = int(unsub_row.get("cnt") or 0)
+                except Exception:
+                    unsub_ignored = 0
+                try:
+                    bounce_row = db.fetch_one("sql/contacts/count_bounces_since_id.sql", (last_id,)) or {"cnt": 0}
+                    bounce_ignored = int(bounce_row.get("cnt") or 0)
+                except Exception:
+                    bounce_ignored = 0
 
                 recipients = db.fetch_all(
                     "sql/contacts/select_contacts_simple.sql",
@@ -935,6 +949,8 @@ class EmailService:
             summary_table.add_row("Total de Tentativas", str(total_attempts))
             summary_table.add_row("Média de Tentativas por Email", f"{avg_attempts_per_email:.2f}")
             summary_table.add_row("Falhas por Erro de Conexão", str(total_connection_errors))
+            summary_table.add_row("Descadastrados (ignorados)", str(unsub_ignored))
+            summary_table.add_row("Bounces (ignorados)", str(bounce_ignored))
             summary_table.add_row("Tempo Total de Execução", f"{tempo_total_min:.2f} minutos ({duration:.1f}s)")
             
             console.print(summary_table)
@@ -948,7 +964,10 @@ class EmailService:
                 notify_telegram(
                     (
                         f"✅ Envio em lote concluído. Total: {total_records} | "
-                        f"Sucesso: {successful} | Falhas: {failed} | Tempo: {duration:.1f}s"
+                        f"Sucesso: {successful} | Falhas: {failed} | "
+                        f"Descadastrados ignorados: {unsub_ignored} | "
+                        f"Bounces ignorados: {bounce_ignored} | "
+                        f"Tempo: {duration:.1f}s"
                     )
                 )
             except Exception:
