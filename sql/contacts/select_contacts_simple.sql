@@ -4,7 +4,6 @@ SELECT tc.id, tc.email
 FROM tbl_contacts tc
 WHERE tc.email IS NOT NULL AND tc.email <> ''
   AND COALESCE(tc.unsubscribed, FALSE) = FALSE
-  AND COALESCE(tc.is_bounce, FALSE) = FALSE
   AND NOT EXISTS (
     SELECT 1
     FROM tbl_contact_tags ctb

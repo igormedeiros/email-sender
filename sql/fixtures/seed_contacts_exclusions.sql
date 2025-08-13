@@ -18,11 +18,12 @@ WHERE NOT EXISTS (
 );
 
 -- Insere contatos com flags usadas pelas queries de seleção
-INSERT INTO tbl_contacts (email, unsubscribed, is_bounce, is_buyer)
+-- Colunas padrão (sem depender de is_bounce). Se existir is_buyer, mantém FALSE.
+INSERT INTO tbl_contacts (email, unsubscribed, is_buyer)
 VALUES
-    ('valid@test.com',  FALSE, FALSE, FALSE),  -- elegível (terá tag 'test')
-    ('unsub@test.com',  TRUE,  FALSE, FALSE),  -- descadastrado: será ignorado
-    ('bounce@test.com', FALSE, TRUE,  FALSE);  -- bounce: será ignorado
+    ('valid@test.com',  FALSE, FALSE),  -- elegível (terá tag 'test')
+    ('unsub@test.com',  TRUE,  FALSE),  -- descadastrado: será ignorado
+    ('bounce@test.com', FALSE, FALSE);  -- bounce: será ignorado (via tag)
 
 -- Vincula tags aos contatos
 WITH c AS (
