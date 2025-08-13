@@ -402,8 +402,7 @@ class EmailService:
                         content=html_content,
                         is_html=True,
                     )
-                    console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]
-")
+                    console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]")
                     successful += 1
                     # log 'sent'
                     db.execute(
