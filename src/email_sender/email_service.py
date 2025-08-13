@@ -786,6 +786,21 @@ class EmailService:
                                     )
                                     signal.alarm(send_timeout)
                                     
+                                    # Verificar elegibilidade do contato (defesa extra)
+                                    try:
+                                        with Database(self.config) as db_chk:
+                                            ok_row = db_chk.fetch_one("sql/contacts/check_contact_eligible.sql", (recipient.get('id'),)) or {"ok": True}
+                                            if not bool(ok_row.get("ok", True)):
+                                                email_results.append({
+                                                    'email': recipient_email,
+                                                    'status': '[yellow]Ignorado[/yellow]',
+                                                    'tentativas': '0',
+                                                    'detalhes': 'Contato marcado como unsubscribed/bounce'
+                                                })
+                                                break
+                                    except Exception:
+                                        pass
+
                                     html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
                                     # Gerar assunto UMA ÚNICA VEZ para todo o lote, com base no primeiro corpo
                                     if final_subject_for_batch is None:
