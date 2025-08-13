@@ -70,6 +70,15 @@ O e-mail promove um treinamento intensivo de 2 dias sobre:
 - Retorne APENAS o título do e-mail, sem qualquer formatação adicional, códigos ou explicações.
 - Não use dois-pontos (:). Não use números (por extenso ou dígitos).
 
+## VALIDAÇÃO DE QUALIDADE (OBRIGATÓRIA)
+- O título deve ser uma frase natural, com começo, meio e fim coerentes.
+- Não permitir palavras soltas no início (ex.: apenas a cidade seguida do tema sem conector inadequado).
+- Evitar termos fora de contexto ou construções sem sentido.
+- Se detectar frase truncada, com palavra “sobrando”/fora de lugar, REFAÇA internamente e retorne apenas a versão corrigida.
+- Exemplos a evitar (corrigir internamente):
+  - "Goiânia Proteção e Seletividade - A Expertise Essencial para a Era dos Carros Elétricos"
+    - Correção esperada (exemplo): "Goiânia — Proteção e Seletividade para a Era dos Carros Elétricos"
+
 ## INSTRUÇÃO FINAL
 Considerando que o público busca crescimento profissional e se adaptar às novas demandas do setor elétrico (como infraestrutura para carros elétricos e data centers), crie um título que desperte curiosidade máxima sobre como o treinamento pode acelerar a carreira deles.
 
