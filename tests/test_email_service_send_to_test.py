@@ -24,7 +24,7 @@ class FakeDb:
 
     def fetch_all(self, sql, params=()):
         self.ops.append(("fetch_all", sql, params))
-        # Return single test recipient row
+        # Return single test recipient row tagged 'test' scenario is assumed in SQL
         return [{"id": 123, "email": "to@test"}]
 
     def execute(self, sql, params=()):
@@ -65,12 +65,19 @@ def test_send_email_to_test_recipient(monkeypatch, tmp_path):
     # Patch Database class inside email_service
     from email_sender import email_service as es
 
-    monkeypatch.setattr(es, "Database", lambda cfg: FakeDb())
+    created_dbs = []
+    def _mk_db(cfg):
+        db = FakeDb()
+        created_dbs.append(db)
+        return db
+    monkeypatch.setattr(es, "Database", _mk_db)
     monkeypatch.setattr(es, "SmtpManager", lambda cfg: FakeSmtpManager(cfg))
 
     svc = EmailService(FakeConfig(tpl))
     report = svc.send_email_to_test_recipient(str(tpl))
     assert report["test_recipient"] == "to@test"
+    # Ensure the selection SQL used excludes unsubscribed/bounces/tags per file path
+    assert created_dbs and any("select_recipients_for_message.sql" in str(op[1]) for op in created_dbs[0].ops if op[0] == "fetch_all")
     # Subject should reflect rendered body (title/h1) without needing API
     # Access the patched SmtpManager instance last call via monkeypatch above is not directly accessible here,
     # so we re-create and assert indirectly is not trivial. Instead, ensure the fallback runs without error by checking report keys.

@@ -8,6 +8,7 @@ from email_sender.email_service import EmailService
 class FakeDb:
     def __init__(self):
         self.executed = []
+        self.fetches = []
     def __enter__(self):
         return self
     def __exit__(self, *a):
@@ -17,6 +18,8 @@ class FakeDb:
             return {"id": 42}
         return None
     def fetch_all(self, sql, params=()):
+        # Track which SQL was used
+        self.fetches.append((str(sql), params))
         # Two recipients
         return [
             {"id": 1, "email": "a@test"},
@@ -68,3 +71,5 @@ def test_process_email_sending_success(monkeypatch, tmp_path):
     assert result["total_sent"] == 2
     assert result["successful"] == 2
     assert len(fake_smtp.calls) == 2
+    # Ensure we used the SQL that excludes unsubscribed/bounces
+    assert any("select_contacts_simple.sql" in call[0] for call in db.executed + db.fetches)
