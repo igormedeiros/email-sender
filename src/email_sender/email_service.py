@@ -419,12 +419,11 @@ class EmailService:
                         )
                     except Exception:
                         pass
-            finally:
-                # fechar campanha
-                try:
-                    db.execute("sql/messages/mark_message_processed.sql", (message_id,))
-                except Exception:
-                    pass
+            # fechar campanha
+            try:
+                db.execute("sql/messages/mark_message_processed.sql", (message_id,))
+            except Exception:
+                pass
 
         end_time = time.time()
         report = self.generate_report(start_time, end_time, total_send_attempts, successful, failed)
