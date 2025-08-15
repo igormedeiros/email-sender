@@ -1,6 +1,6 @@
 # Email Sender
 
-Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup automático e relatórios detalhados. Todas as configurações são mantidas em arquivos YAML externos, sem valores hardcoded no código.
+Sistema robusto para envio de emails em lote com suporte a banco de dados PostgreSQL, backup automático e relatórios detalhados. Todas as configurações são mantidas em arquivos YAML externos, sem valores hardcoded no código.
 
 ## 📋 Índice
 
@@ -18,7 +18,7 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 
 ## 🚀 Recursos
 
-- ✉️ Envio de emails em lote a partir de planilhas CSV
+- ✉️ Envio de emails em lote a partir do banco de dados PostgreSQL
 - 🔄 Backup automático e restauração em caso de falhas
 - 📊 Relatórios detalhados de envio
 - ⏱️ Controle de taxa de envio e intervalos entre lotes
@@ -31,6 +31,7 @@ Sistema robusto para envio de emails em lote com suporte a planilhas CSV, backup
 - 🔧 Configuração 100% externa via arquivos YAML (sem valores hardcoded)
 - 🌐 API REST para todas as funcionalidades
 - 🔌 Arquitetura desacoplada com controllers e service
+- ⏯️ Retomada automática de processos interrompidos
 
 ## 🛠️ Requisitos
 
@@ -121,25 +122,28 @@ nano .env  # Coloque suas credenciais SMTP
 
 3. Configure as credenciais SMTP no arquivo `.env`:
 
-| Variável      | Descrição    | Exemplo       |
-| ------------- | ------------ | ------------- |
-| SMTP_USERNAME | Usuário SMTP | seu@email.com |
-| SMTP_PASSWORD | Senha SMTP   | sua_senha     |
+| Variável             | Descrição                           | Exemplo       |
+| -------------------- | ----------------------------------- | ------------- |
+| SMTP_USERNAME        | Usuário SMTP                        | seu@email.com |
+| SMTP_PASSWORD        | Senha SMTP                          | sua_senha     |
+| SUBJECT_INTERACTIVE  | Ativa aprovação interativa de assunto | 1 (ativado)   |
 
 4. Outras configurações disponíveis no arquivo `config/config.yaml`:
 
 | Seção | Chave            | Descrição                    | Exemplo                    |
 | ----- | ---------------- | ---------------------------- | -------------------------- |
 | email | sender           | Nome e email do remetente    | Seu Nome \<seu@email.com\> |
-| email | batch_size       | Tamanho do lote              | 100                        |
-| email | csv_file         | Arquivo de emails            | data/emails_geral.csv      |
+| email | batch_size       | Tamanho do lote              | 200                        |
 | email | test_recipient   | Email para teste             | test@example.com           |
-| email | batch_delay      | Delay entre lotes (segundos) | 60                         |
-| email | unsubscribe_file | Arquivo de descadastros      | data/descadastros.csv      |
-| email | test_emails_file | Arquivo para testes em lote  | data/test_emails.csv       |
-| email | bounces_file     | Arquivo de emails com bounce | data/bounces.csv           |
+| email | batch_delay      | Delay entre lotes (segundos) | 5                          |
 
-5. Conteúdo dinâmico para os templates em `config/email.yaml`:
+5. Aprovação interativa de assunto
+
+Ao enviar emails (toda a base), o sistema gera automaticamente um assunto para os emails. Com a variável `SUBJECT_INTERACTIVE=1` configurada no arquivo `.env`, o sistema solicitará a aprovação do assunto gerado antes de iniciar o envio.
+
+Caso o usuário não aprove o assunto, o sistema irá gerar uma nova variação (até 2 tentativas adicionais) e solicitar novamente a aprovação. Isso permite garantir que o assunto dos emails seja apropriado antes do envio em lote.
+
+6. Conteúdo dinâmico para os templates em `config/email.yaml`:
 
 O arquivo `config/email.yaml` contém variáveis que serão substituídas no template HTML. Exemplo:
 
@@ -173,14 +177,9 @@ urls:
   subscribe: "https://seu-site.com/resubscribe" # URL para recadastro
 ```
 
-6. Crie os arquivos CSV necessários na pasta `data/` seguindo as estruturas descritas em `example_emails.csv.md`:
 
-```bash
-mkdir -p data
-touch data/emails_geral.csv data/test_emails.csv data/descadastros.csv data/bounces.csv
-```
 
-5. Configuração da API REST em `config/rest.yaml`:
+7. Configuração da API REST em `config/rest.yaml`:
 
 | Seção         | Chave                                     | Descrição                   | Padrão               |
 | ------------- | ----------------------------------------- | --------------------------- | -------------------- |
@@ -203,7 +202,7 @@ touch data/emails_geral.csv data/test_emails.csv data/descadastros.csv data/boun
 | documentation | path                                      | Caminho da documentação     | /api/docs            |
 | documentation | openapi_file                              | Arquivo OpenAPI             | config/api-docs.yaml |
 
-6. Documentação da API em `config/api-docs.yaml`:
+8. Documentação da API em `config/api-docs.yaml`:
 
 Este arquivo contém a especificação OpenAPI/Swagger da API, incluindo:
 
@@ -214,6 +213,16 @@ Este arquivo contém a especificação OpenAPI/Swagger da API, incluindo:
 - Exemplos
 
 A documentação segue o formato [OpenAPI 3.0](https://swagger.io/specification/) e pode ser visualizada em `/api/docs` quando a API está em execução.
+
+9. Inicialização do Banco de Dados:
+
+O sistema requer a criação da tabela `tbl_send_state` para rastrear o estado dos envios e permitir a retomada de processos interrompidos. Para inicializar o banco de dados, execute:
+
+```bash
+python3 init_db.py
+```
+
+Este script criará a tabela `tbl_send_state` no banco de dados PostgreSQL configurado nas variáveis de ambiente.
 
 ## 🎯 Uso
 
@@ -247,23 +256,19 @@ Resposta esperada:
 
 #### Enviar Emails
 
+Antes de enviar emails, certifique-se de que o banco de dados foi inicializado corretamente executando o script `init_db.py`. Isso criará a tabela `tbl_send_state` necessária para rastrear o estado dos envios e permitir a retomada de processos interrompidos.
+
 Envie emails usando um template e planilha, especificando obrigatoriamente o modo de envio:
 
 ```bash
 # Modo de teste (lê o caminho do template de config/email.yaml -> email.template_path)
 email-sender send-emails --mode=test
 
-# Modo de produção (arquivo data/emails_geral.csv)
+# Modo de produção
 email-sender send-emails --mode=production
-
-# Especificando arquivo CSV personalizado
-email-sender send-emails --mode=production --csv-file data/minha_lista.csv
 
 # Ignorando sincronização de descadastros e bounces
 email-sender send-emails --mode=production --skip-sync
-
-# Especificando arquivo de bounces personalizado
-email-sender send-emails --mode=production --bounces-file data/meus_bounces.csv
 
 # Alternativa sem entrypoint
 python -m email_sender.controller_cli send-emails --mode=test
@@ -273,22 +278,20 @@ Este comando sincroniza automaticamente a lista de descadastros e bounces (a men
 
 > **⚠️ Segurança:** É obrigatório especificar o modo de envio:
 >
-> - `--mode=test`: Usa o arquivo `data/test_emails.csv` para testes seguros (definido em config/config.yaml)
-> - `--mode=production`: Usa a lista completa `emails_geral.csv` para envios reais (definido em config/config.yaml)
+> - `--mode=test`: Usa a lista de emails de teste do banco de dados para testes seguros
+> - `--mode=production`: Usa a lista completa de emails do banco de dados para envios reais
 >
 > Não é possível executar o comando sem especificar um destes modos, evitando envios acidentais.
 
 Parâmetros:
 
 - `template`: Nome ou caminho do template HTML a ser usado (obrigatório)
-- `--csv-file`: Caminho do arquivo CSV (opcional, usa configuração se omitido)
+
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
 - `--skip-sync`: Ignora a sincronização da lista de descadastros e bounces antes do envio
 - `--mode`: **Obrigatório**: especifique o modo de envio (`test` ou `production`)
-- `--bounces-file`: Caminho para o arquivo CSV de bounces (padrão: `data/bounces.csv`)
 
-Durante a execução, o progresso é exibido em tempo real:
 
 ```
 📧 usuario1@example.com
@@ -316,14 +319,13 @@ Faltam: 0 emails
 Sincroniza manualmente a lista de descadastros com o arquivo principal de emails:
 
 ```bash
-email-sender sync-unsubscribed-command [--csv-file data/emails_geral.csv] [--unsubscribe-file data/descadastros.csv]
+email-sender sync-unsubscribed-command
 ```
 
 Este comando atualiza a coluna `descadastro` no arquivo principal com base na lista de emails descadastrados. É executado automaticamente antes de cada envio, mas pode ser executado manualmente quando necessário. Ele marcará com "S" os emails que constam na lista de descadastros.
 
 Parâmetros opcionais:
 
-- `--csv-file`: Caminho para o arquivo CSV principal (usa o da configuração se omitido)
 - `--unsubscribe-file`: Caminho para o arquivo de descadastros (usa o da configuração se omitido)
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
@@ -335,15 +337,13 @@ Além disso, se existirem emails na lista de descadastros que não estão presen
 Sincroniza manualmente a lista de emails de bounce com o arquivo principal de emails:
 
 ```bash
-email-sender sync-bounces-command [--csv-file data/emails_geral.csv] [--bounces-file data/bounces.csv]
+email-sender sync-bounces-command
 ```
 
 Este comando atualiza a coluna `bounce` no arquivo principal com base na lista de emails de bounce. Ele marcará com "S" os emails que constam na lista de bounces. É executado automaticamente antes de cada envio de produção (a menos que `--skip-sync` seja usado), mas pode ser executado manualmente.
 
 Parâmetros opcionais:
 
-- `--csv-file`: Caminho para o arquivo CSV principal (usa o da configuração se omitido)
-- `--bounces-file`: Caminho para o arquivo de bounces (padrão: `data/bounces.csv`)
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
 
@@ -352,40 +352,37 @@ Parâmetros opcionais:
 Reseta o status de todos os emails na planilha, permitindo o reenvio para todos os contatos:
 
 ```bash
-email-sender clear-sent-flags [--csv-file data/emails_geral.csv]
+email-sender clear-sent-flags
 ```
 
 Parâmetros opcionais:
 
-- `--csv-file`: Caminho para o arquivo CSV (usa o da configuração se omitido)
 - `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
 - `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
 
-Este comando limpa as colunas `enviado` e `falhou` do arquivo CSV, permitindo que emails já enviados ou que falharam anteriormente sejam processados novamente no próximo envio.
+Este comando limpa as colunas `enviado` e `falhou` do banco de dados, permitindo que emails já enviados ou que falharam anteriormente sejam processados novamente no próximo envio.
 
 #### Remover Duplicados
 
-Remove linhas duplicadas de um arquivo CSV baseado em uma coluna específica (por padrão, a coluna 'email'):
+Remove linhas duplicadas da base de dados PostgreSQL baseado em uma coluna específica (por padrão, a coluna 'email'):
 
 ```bash
 # Remoção básica (usa coluna 'email' e mantém a primeira ocorrência)
-email-sender remove-duplicates data/emails_geral.csv
+email-sender remove-duplicates
 
 # Especificando a coluna para verificar duplicados
-email-sender remove-duplicates data/emails_geral.csv --column nome
+email-sender remove-duplicates --column nome
 
 # Escolhendo qual ocorrência manter (primeira ou última)
-email-sender remove-duplicates data/emails_geral.csv --keep last
+email-sender remove-duplicates --keep last
 
 # Salvando em um novo arquivo em vez de substituir o original
-email-sender remove-duplicates data/emails_geral.csv --output data/emails_sem_duplicados.csv
 ```
 
-Este comando analisa o arquivo CSV, identifica duplicatas com base na coluna especificada, e mantém apenas uma ocorrência de cada valor único. Antes de modificar o arquivo original, o sistema cria automaticamente um backup de segurança.
+Este comando analisa a base de dados, identifica duplicatas com base na coluna especificada, e mantém apenas uma ocorrência de cada valor único.
 
 Parâmetros:
 
-- `csv_file`: Caminho para o arquivo CSV a ser processado (obrigatório)
 - `--column, -c`: Coluna a ser usada para identificar duplicados (padrão: "email")
 - `--keep, -k`: Qual ocorrência manter ("first" ou "last", padrão: "first")
 - `--output, -o`: Arquivo de saída (se não especificado, substitui o original)
@@ -467,7 +464,6 @@ Esta interface permite explorar todos os endpoints disponíveis, seus parâmetro
 | `/api/emails/clear-flags`       | POST   | Limpar flags de envio                |
 | `/api/emails/sync-unsubscribed` | POST   | Sincronizar lista de descadastros    |
 | `/api/emails/sync-bounces`      | POST   | Sincronizar lista de bounces         |
-| `/api/csv/remove-duplicates`    | POST   | Remover linhas duplicadas de um CSV  |
 | `/api/config`                   | GET    | Obter configurações atuais           |
 | `/api/config`                   | PUT    | Atualizar configurações              |
 | `/api/config/partial`           | PATCH  | Atualizar configurações parcialmente |
@@ -476,51 +472,7 @@ Consulte a documentação OpenAPI completa em `/api/docs` para detalhes sobre pa
 
 ## 📊 Estrutura dos Dados
 
-Os arquivos de dados devem ser criados manualmente na pasta `data/` seguindo as estruturas abaixo:
 
-### Arquivo `emails_geral.csv`
-
-Arquivo principal de emails:
-
-| Coluna      | Descrição                       | Valores                          |
-| ----------- | ------------------------------- | -------------------------------- |
-| email       | Endereço de email (obrigatório) | email@domain.com                 |
-| enviado     | Status de envio                 | "" (não enviado), "ok" (enviado) |
-| falhou      | Status de falha                 | "" (sem falha), "ok" (falhou)    |
-| descadastro | Flag de descadastramento        | "" (enviar), "S" (não enviar)    |
-| bounce      | Flag de bounce                  | "" (enviar), "S" (não enviar)    |
-| [outros]    | Campos adicionais para template | Qualquer valor                   |
-
-### Arquivo `test_emails.csv`
-
-Arquivo para testes de envio em lote:
-
-| Coluna      | Descrição                       | Valores                          |
-| ----------- | ------------------------------- | -------------------------------- |
-| email       | Endereço de email (obrigatório) | email@domain.com                 |
-| enviado     | Status de envio                 | "" (não enviado), "ok" (enviado) |
-| falhou      | Status de falha                 | "" (sem falha), "ok" (falhou)    |
-| descadastro | Flag de descadastramento        | "" (enviar), "S" (não enviar)    |
-| bounce      | Flag de bounce                  | "" (enviar), "S" (não enviar)    |
-| [outros]    | Campos adicionais para template | Qualquer valor                   |
-
-### Arquivo `descadastros.csv`
-
-Lista de emails descadastrados:
-
-| Coluna | Descrição                       | Valores          |
-| ------ | ------------------------------- | ---------------- |
-| email  | Endereço de email (obrigatório) | email@domain.com |
-
-### Arquivo `bounces.csv`
-
-Lista de emails com bounce:
-
-| Coluna | Descrição                       | Valores          |
-| ------ | ------------------------------- | ---------------- |
-| email  | Endereço de email (obrigatório) | email@domain.com |
-
-> 📝 **Nota:** Para mais detalhes sobre a estrutura dos arquivos CSV, consulte o arquivo `example_emails.csv.md`.
 
 ## 📈 Relatórios
 
@@ -541,26 +493,20 @@ Exemplo de nome do arquivo: `email_report_20250212_172008.txt`
 Para garantir a segurança das informações, os seguintes tipos de arquivos são excluídos do versionamento Git:
 
 - **Credenciais**: arquivos `.env`, senhas e credenciais
-- **Dados**: arquivos CSV, Excel e outros dados na pasta `data/`
 - **Configurações**: arquivos YAML na pasta `config/`
 - **Templates de Email**: arquivos HTML na pasta `templates/`
 - **Logs e Relatórios**: arquivos na pasta `reports/`
-
-> 🚫 **NUNCA VERSIONE ARQUIVOS CSV COM DADOS REAIS!**
->
-> Todos os arquivos CSV estão configurados no `.gitignore` para serem ignorados pelo Git. Não remova estas exclusões nem tente forçar o versionamento destes arquivos.
 
 ### 📝 Arquivos de Exemplo
 
 Para facilitar a configuração, o projeto inclui os seguintes arquivos de exemplo que são versionados:
 
-| Arquivo Original              | Arquivo de Exemplo             | Descrição                               |
-| ----------------------------- | ------------------------------ | --------------------------------------- |
-| `config/config.yaml`          | `example_config.yaml`          | Configurações do sistema                |
-| `config/email.yaml`           | `example_email.yaml`           | Conteúdo dinâmico de emails             |
-| `templates/email.html`        | `templates/email.html.example` | Template de email                       |
-| `.env`                        | `.env.example`                 | Credenciais SMTP                        |
-| Arquivos CSV na pasta `data/` | `example_emails.csv.md`        | Descrição da estrutura dos arquivos CSV |
+| Arquivo Original       | Arquivo de Exemplo             | Descrição                    |
+| ---------------------- | ------------------------------ | ---------------------------- |
+| `config/config.yaml`   | `example_config.yaml`          | Configurações do sistema     |
+| `config/email.yaml`    | `example_email.yaml`           | Conteúdo dinâmico de emails  |
+| `templates/email.html` | `templates/email.html.example` | Template de email            |
+| `.env`                 | `.env.example`                 | Credenciais SMTP             |
 
 ## 🔧 Desenvolvimento
 
@@ -586,10 +532,6 @@ email-sender/
 │   ├── rest.yaml        # Configuração da API REST
 │   └── api-docs.yaml    # Documentação OpenAPI
 ├── data/                # Arquivos de dados (não versionados)
-│   ├── emails_geral.csv         # Lista principal de emails
-│   ├── test_emails.csv          # Emails para teste em lote
-│   ├── descadastros.csv         # Lista de emails descadastrados
-│   └── bounces.csv              # Lista de emails com bounce
 ├── templates/           # Templates de email
 │   └── email.html       # Template padrão de email HTML
 ├── logs/                # Logs da aplicação (não versionados)
@@ -604,7 +546,6 @@ email-sender/
 │   │   ├── app.py               # Aplicação Flask principal
 │   │   └── utils.py             # Utilitários da API
 │   ├── utils/
-│   │   └── csv_reader.py        # Leitor de CSV
 │   ├── cli.py                   # Ponto de entrada da CLI
 │   ├── controller_cli.py        # Controller para interface CLI
 │   ├── controller_rest.py       # Controller para compatibilidade
@@ -618,7 +559,6 @@ email-sender/
 ├── example_email.yaml           # Exemplo de conteúdo de email
 ├── config/rest.yaml.example     # Exemplo de configuração REST
 ├── config/api-docs.yaml.example # Exemplo de documentação OpenAPI
-├── example_emails.csv.md        # Documentação da estrutura CSV
 ├── templates/email.html.example # Exemplo de template
 ├── .env.example                 # Exemplo de credenciais
 └── setup.py             # Configuração do pacote

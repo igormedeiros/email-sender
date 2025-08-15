@@ -294,7 +294,13 @@ class EmailService:
                     variation_hint="gere uma variação diferente do anterior, mais curiosa e com benefício específico"
                 )
                 attempts_left -= 1
-        except Exception:
+        except Exception as e:
+            # Log the exception for debugging
+            try:
+                console = get_console()
+                console.print(f"[red]Erro na geração interativa de assunto: {e}[/red]")
+            except:
+                pass
             return generated_subject
 
     def send_email_to_test_recipient(self, template: str, limit: int = 1) -> Dict[str, Any]:
@@ -589,7 +595,7 @@ class EmailService:
 
     # Legacy helpers removed: remove_duplicates, create_backup, send_test_email.
 
-    def process_email_sending(self, csv_file: str | None = None, template: str = "", skip_unsubscribed_sync: bool = True, is_test_mode: bool = True, bounces_file_path: str | None = None) -> Dict[str, Any]:
+    def process_email_sending(self, template: str = "", skip_unsubscribed_sync: bool = True, is_test_mode: bool = True) -> Dict[str, Any]:
         """Processa envio em lote usando Postgres via SQL (fluxo simplificado)."""
         try:
             # Configurar console e formatação Rich
@@ -616,10 +622,11 @@ class EmailService:
             retry_delay_config = self.config.email_config.get("retry_delay", 60)
             send_timeout = self.config.email_config.get("send_timeout", 10)
             max_retry_minutes = self.config.email_config.get("max_retry_minutes", 5)
+            batch_size = self.config.email_config.get("batch_size", 200)
             
             # Exibir configurações de envio
             console.print("\n[bold]Configurações de envio:[/bold]")
-            console.print(f"Tempo máximo de tentativas: [cyan]{max_retry_minutes} minutos[/cyan]")
+            console.print(f"Tamanho do lote: [cyan]{batch_size} emails[/cyan]")
             console.print(f"Número máximo de tentativas: [cyan]{retry_attempts_config}[/cyan]")
             console.print(f"Tempo entre tentativas: [cyan]{retry_delay_config}s[/cyan]")
             console.print(f"Timeout por tentativa: [cyan]{send_timeout}s[/cyan]")
@@ -673,12 +680,12 @@ class EmailService:
                     (last_id,),
                 )
 
-                total_records = len(recipients)
-                if total_records == 0:
-                    console.print("[bold yellow]Atenção: Nenhum destinatário elegível encontrado no Postgres[/bold yellow]")
-                    return {"status": "no_emails", "total_records": 0}
-                
-                console.print(f"\n[bold]Total de registros para processar: [cyan]{total_records}[/cyan][/bold]")
+            total_records = len(recipients)
+            if total_records == 0:
+                console.print("[bold yellow]Atenção: Nenhum destinatário elegível encontrado no Postgres[/bold yellow]")
+                return {"status": "no_emails", "total_records": 0}
+            
+            console.print(f"\n[bold]Total de registros para processar: [cyan]{total_records}[/cyan][/bold]")
             
             # Configurar tabela para exibir informações de envio em tempo real
             email_table = Table(title="Informações de Envio de Emails", box=ROUNDED, show_header=True)
@@ -698,9 +705,9 @@ class EmailService:
                     raise TimeoutException
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
-                configured_batch_size = self.config.email_config.get("batch_size", 30)
+                configured_batch_size = self.config.email_config.get("batch_size", 200)
                 if configured_batch_size <= 0:
-                    configured_batch_size = 30
+                    configured_batch_size = 200
                 total_batches = math.ceil(total_records / configured_batch_size) if total_records > 0 else 0
                 
                 with Progress(
@@ -855,10 +862,13 @@ class EmailService:
                                     })
                                     # Atualizar estado do último enviado com sucesso
                                     try:
-                                        db.execute(
-                                            "sql/runtime/upsert_send_state.sql",
-                                            (STATE_KEY, str(recipient.get('id'))),
-                                        )
+                                        # Criar uma nova conexão para atualizar o estado
+                                        # Isso evita problemas com a conexão principal já fechada
+                                        with Database(self.config) as state_db:
+                                            state_db.execute(
+                                                "sql/runtime/upsert_send_state.sql",
+                                                (STATE_KEY, str(recipient.get('id'))),
+                                            )
                                     except Exception as st_exc:
                                         log.warning(f"Falha ao atualizar estado de envio: {st_exc}")
                                     break

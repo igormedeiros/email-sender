@@ -98,7 +98,7 @@ class Database:
             password=pg["password"],
             dbname=pg["database"],
             row_factory=dict_row,
-            autocommit=False,
+            autocommit=True,  # Usar autocommit para evitar transações pendentes
         )
 
     def close(self) -> None:
