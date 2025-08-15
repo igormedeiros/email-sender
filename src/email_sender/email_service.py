@@ -876,13 +876,25 @@ class EmailService:
                                 except TimeoutException:
                                     signal.alarm(0)
                                     # Timeout é um problema de conexão, então ele tentará novamente se ainda estiver dentro do limite de tempo
-                                    if time.time() < max_retry_time:
-                                        progress.console.print(f"[yellow]⚠️ Timeout ao enviar para {recipient_email}. Tentando novamente em {retry_delay_config}s...[/yellow]")
-                                        time.sleep(retry_delay_config)
+                                    # Reduzir o número máximo de tentativas para 2 e o tempo de espera
+                                    if attempts < 2 and time.time() < max_retry_time:
+                                        wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
+                                        progress.console.print(f"[yellow]⚠️ Timeout ao enviar para {recipient_email}. Tentando novamente em {wait_time}s...[/yellow]")
+                                        time.sleep(wait_time)
                                         continue
                                     else:
                                         progress.console.print(f"[red]❌ Timeout ao enviar para {recipient_email} - tempo máximo excedido[/red]")
                                         failed += 1
+                                        
+                                        # Marcar o contato com uma tag de problema
+                                        try:
+                                            with Database(self.config) as tag_db:
+                                                tag_db.execute(
+                                                    "sql/tags/assign_tag_problem_by_email.sql",
+                                                    (recipient_email,),
+                                                )
+                                        except Exception as tag_exc:
+                                            log.warning(f"Falha ao marcar contato com tag de problema: {tag_exc}")
                                         
                                         email_results.append({
                                             'email': recipient_email,
@@ -898,8 +910,9 @@ class EmailService:
                                     error_is_connection_related = is_connection_error(error_str)
                                     
                                     # Se for erro de conexão e ainda estiver dentro do limite de tempo, tenta novamente
-                                    if error_is_connection_related and time.time() < max_retry_time:
-                                        wait_time = min(retry_delay_config, 30)  # No máximo 30s entre tentativas
+                                    # Reduzir o número máximo de tentativas para 2
+                                    if error_is_connection_related and attempts < 2 and time.time() < max_retry_time:
+                                        wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
                                         tempo_restante = max(0, (max_retry_time - time.time()) / 60)
                                         
                                         progress.console.print(
@@ -911,12 +924,23 @@ class EmailService:
                                         time.sleep(wait_time)
                                         continue
                                     # Se atingiu o número de tentativas OU não é erro de conexão OU tempo esgotado
-                                    elif attempts >= retry_attempts_config or not error_is_connection_related or time.time() >= max_retry_time:
+                                    elif attempts >= 2 or not error_is_connection_related or time.time() >= max_retry_time:
                                         if error_is_connection_related:
                                             reason = "tempo máximo excedido" if time.time() >= max_retry_time else f"após {attempts} tentativas"
                                             progress.console.print(f"[red]❌ Falha de conexão ao enviar para {recipient_email} - {reason}: {str(e)}[/red]")
                                         else:
                                             progress.console.print(f"[red]❌ Falha ao enviar para {recipient_email}: {str(e)}[/red]")
+                                        
+                                        # Marcar o contato com uma tag de problema para erros de conexão
+                                        if error_is_connection_related:
+                                            try:
+                                                with Database(self.config) as tag_db:
+                                                    tag_db.execute(
+                                                        "sql/tags/assign_tag_problem_by_email.sql",
+                                                        (recipient_email,),
+                                                    )
+                                            except Exception as tag_exc:
+                                                log.warning(f"Falha ao marcar contato com tag de problema: {tag_exc}")
                                         
                                         failed += 1
                                         email_results.append({
@@ -927,10 +951,11 @@ class EmailService:
                                         })
                                         break
                                     else:
-                                        progress.console.print(f"[yellow]⚠️ Falha temporária ao enviar para {recipient_email} (Tentativa {attempts}/{retry_attempts_config}): {str(e)}[/yellow]")
+                                        progress.console.print(f"[yellow]⚠️ Falha temporária ao enviar para {recipient_email} (Tentativa {attempts}/2): {str(e)}[/yellow]")
                                         if retry_delay_config > 0:
-                                            progress.console.print(f"[yellow]Aguardando {retry_delay_config}s antes da próxima tentativa...[/yellow]")
-                                            time.sleep(retry_delay_config)
+                                            wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
+                                            progress.console.print(f"[yellow]Aguardando {wait_time}s antes da próxima tentativa...[/yellow]")
+                                            time.sleep(wait_time)
                             
                             # Increment counter for emails actually attempted in this batch
                             if recipient_email: # Ensure we count only if there was an email to process

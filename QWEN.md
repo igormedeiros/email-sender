@@ -38,6 +38,9 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 - Agendar envio de emails para horários específicos
 - Retomar processos de envio interrompidos através da tabela `tbl_send_state`
 - Tratar adequadamente transações abortadas no banco de dados
+- Limitar número de retentativas a 2 tentativas máximas para falhas de conexão
+- Marcar contatos com problemas de envio com tag 'problem' para evitar reenvios
+- Reduzir tempo de espera entre retentativas para otimizar tempo total de envio
 
 ### 2.3 Gerenciamento de Eventos
 - Integrar com a API do Sympla para obter informações de eventos
@@ -280,6 +283,9 @@ O sistema utiliza as seguintes tabelas no PostgreSQL:
 - [x] Retentativas são feitas para falhas de envio
 - [x] Estado de envio é persistido na tabela tbl_send_state para retomada de processos
 - [x] Tratamento adequado de transações abortadas no banco de dados
+- [x] Limitação de retentativas a 2 tentativas máximas para falhas de conexão
+- [x] Marcação de contatos com problemas de envio com tag 'problem' para evitar reenvios
+- [x] Otimização do tempo de espera entre retentativas para reduzir tempo total de envio
 
 ### 8.2 Gerenciamento de Contatos
 - [x] Contatos unsubscribed não recebem emails

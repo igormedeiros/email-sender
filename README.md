@@ -137,13 +137,23 @@ nano .env  # Coloque suas credenciais SMTP
 | email | test_recipient   | Email para teste             | test@example.com           |
 | email | batch_delay      | Delay entre lotes (segundos) | 5                          |
 
-5. Aprovação interativa de assunto
+5. Configurações de SMTP para retentativas
+
+| Seção | Chave            | Descrição                           | Exemplo |
+| ----- | ---------------- | ----------------------------------- | ------- |
+| smtp  | retry_attempts   | Número máximo de tentativas         | 3       |
+| smtp  | retry_delay      | Delay entre tentativas (segundos)   | 5       |
+| smtp  | send_timeout     | Timeout de envio (segundos)         | 10      |
+
+**Importante**: O sistema limita o número de retentativas a 2 tentativas máximas para falhas de conexão e marca contatos com problemas de envio com a tag 'problem' para evitar reenvios futuros. O tempo de espera entre retentativas é otimizado para reduzir o tempo total de envio.
+
+6. Aprovação interativa de assunto
 
 Ao enviar emails (toda a base), o sistema gera automaticamente um assunto para os emails. Com a variável `SUBJECT_INTERACTIVE=1` configurada no arquivo `.env`, o sistema solicitará a aprovação do assunto gerado antes de iniciar o envio.
 
 Caso o usuário não aprove o assunto, o sistema irá gerar uma nova variação (até 2 tentativas adicionais) e solicitar novamente a aprovação. Isso permite garantir que o assunto dos emails seja apropriado antes do envio em lote.
 
-6. Conteúdo dinâmico para os templates em `config/email.yaml`:
+7. Conteúdo dinâmico para os templates em `config/email.yaml`:
 
 O arquivo `config/email.yaml` contém variáveis que serão substituídas no template HTML. Exemplo:
 
