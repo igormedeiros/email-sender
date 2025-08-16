@@ -86,4 +86,20 @@ addopts = "-q --cov=src/email_sender --cov-report=term-missing --cov-fail-under=
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["src/email_sender/db.py"]
+source = ["src/email_sender"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.xml]
+output = "reports/coverage.xml"
+
+[tool.coverage.html]
+directory = "reports/coverage_html"

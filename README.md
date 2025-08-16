@@ -658,6 +658,41 @@ JWT_SECRET_KEY=seu_segredo_muito_seguro_e_longo
 
 > ⚠️ **IMPORTANTE**: Utilize um segredo forte e único para o JWT. O segredo deve ter pelo menos 32 caracteres e conter letras, números e símbolos para garantir segurança adequada.
 
+## Padrões de Projeto e Práticas de Desenvolvimento
+
+### Princípios de Desenvolvimento
+
+O sistema segue os seguintes princípios de desenvolvimento:
+
+1. **Clean Code**: Código claro, legível e autoexplicativo
+2. **KISS (Keep It Simple, Stupid)**: Manter o código minimalista, evitando complexidade desnecessária
+3. **DRY (Don't Repeat Yourself)**: Evitar duplicação de código através de reutilização
+4. **Separação de Responsabilidades**: Cada módulo tem uma única responsabilidade bem definida
+5. **Orientação a Objeto Moderada**: Aplicada de forma equilibrada sem aumentar complexidade
+
+### Estrutura do Projeto
+
+- Todos os arquivos de código Python (.py) estão dentro dos diretórios `src/` ou `tests/`
+- Nenhum código .py está fora desses diretórios principais
+- Arquivos de configuração no diretório `config/`
+- Templates de email no diretório `templates/`
+- Relatórios e logs no diretório `reports/`
+
+### Testes e Qualidade
+
+- Testes automatizados com pytest
+- Cobertura de código acima de 85%
+- Relatórios de cobertura em XML (coverage.xml) e HTML
+- Linting com flake8 e formatação com black
+- Integração contínua com verificação automática de qualidade
+
+### Reutilização e Manutenção
+
+- Componentização de funcionalidades comuns
+- Configuração externa em arquivos YAML e .env
+- Versionamento semântico e CHANGELOG.md atualizado
+- Exclusão de arquivos sensíveis do versionamento Git
+
 ### Proteção de Endpoints
 
 O sistema utiliza diferentes tipos de proteção para os endpoints:
