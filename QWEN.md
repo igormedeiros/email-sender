@@ -208,13 +208,25 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 4. Atualiza registros de contatos no PostgreSQL, adicionando tag 'Bounce'
 5. Agenda próxima execução do processo de limpeza
 
-### 5.7 Fluxo de Agendamento de Envio de Emails
-1. Usuário define data e hora para envio através da CLI ou API
-2. Sistema armazena informações de agendamento no PostgreSQL
-3. Scheduling Service monitora agendamentos pendentes
-4. No horário agendado, o serviço inicia o processo de envio de emails
-5. Notificações são enviadas sobre o início do envio agendado
-6. Agente analista pode acionar envio imediato de emails para leads quentes através da CLI ou API
+### 5.8 Fluxo de Setup de Envio de Emails
+1. Usuário seleciona "Setup do envio de e-mails" no menu interativo da CLI
+2. Sistema apresenta opções de configuração avançada:
+   - Geração de títulos otimizados com GenAI
+   - Otimização do corpo do email com GenAI
+   - Configuração de testes A/B de assuntos
+3. Para geração de títulos:
+   - Sistema gera 3-5 variações de títulos com GenAI
+   - Usuário aprova uma variação ou solicita novas opções
+   - Títulos aprovados são armazenados para uso em envios
+4. Para otimização de conteúdo:
+   - Sistema analisa template HTML e sugere melhorias
+   - Usuário revisa e aprova alterações propostas
+   - Conteúdo otimizado é salvo para uso em envios
+5. Para testes A/B:
+   - Sistema configura distribuição de variações de títulos
+   - Usuário define percentual de distribuição para cada variação
+   - Sistema agenda análise automática de resultados
+6. Envio de emails utiliza conteúdo previamente configurado e aprovado
 
 ## 6. Configurações Principais
 
@@ -226,7 +238,6 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 - `use_tls`: Usar TLS
 - `retry_attempts`: Número de tentativas de envio
 - `retry_delay`: Pausa entre tentativas
-- `send_timeout`: Timeout por tentativa
 
 ### 6.2 Email (`config/config.yaml`)
 - `sender`: Remetente dos emails
@@ -244,6 +255,13 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 - `uf`: Estado do evento
 - `local`: Local específico do evento
 - `cupom`: Código de cupom promocional
+
+### 6.4 IA e Otimização (`config/ai.yaml`)
+- `genai_provider`: Provedor de GenAI (google, openai, etc.)
+- `genai_model`: Modelo de linguagem a ser utilizado
+- `approval_required`: Requerir aprovação do usuário para conteúdo gerado
+- `ab_test_enabled`: Habilitar testes A/B automaticamente
+- `ab_test_distribution`: Distribuição percentual para testes A/B
 
 ## 7. Considerações de Implementação
 
@@ -332,11 +350,15 @@ O sistema utiliza as seguintes tabelas no PostgreSQL:
 - [x] Notificações são enviadas sobre envios agendados
 - [x] É possível acionar envio imediato de emails para leads quentes
 
-### 8.8 Inteligência de Seleção de Contatos (Backlog)
-- [ ] Implementar agentes de IA para análise de perfis de contatos
-- [ ] Desenvolver algoritmos para identificação de contatos com maior potencial de conversão
-- [ ] Criar mecanismos de personalização de conteúdo baseado em perfil
-- [ ] Medir e otimizar taxa de conversão após implementação
+### 8.9 Setup de Envio de Emails
+- [ ] Menu interativo inclui opção "Setup do envio de e-mails"
+- [ ] Geração automática de variações de títulos com GenAI
+- [ ] Processo de aprovação interativa do usuário para títulos
+- [ ] Otimização do corpo do email com GenAI e aprovação do usuário
+- [ ] Configuração automática de testes A/B de assuntos
+- [ ] Separação completa entre setup de conteúdo e processo de envio
+- [ ] Envio de emails utiliza conteúdo previamente aprovado e configurado
+- [ ] Análise de resultados de testes A/B para otimização contínua
 - [ ] Alternância entre ambientes test/prod funciona
 - [ ] Comandos principais estão disponíveis e funcionais
 
@@ -354,15 +376,17 @@ O sistema utiliza as seguintes tabelas no PostgreSQL:
 - [ ] Notificações são enviadas sobre envios agendados
 - [ ] É possível acionar envio imediato de emails para leads quentes
 
-### 8.8 Inteligência de Seleção de Contatos (Backlog)
-- [ ] Implementar agentes de IA para análise de perfis de contatos
-- [ ] Desenvolver algoritmos para identificação de contatos com maior potencial de conversão
-- [ ] Criar mecanismos de personalização de conteúdo baseado em perfil
-- [ ] Medir e otimizar taxa de conversão após implementação### 8.8 Inteligência de Seleção de Contatos (Backlog)
+### 8.8 Inteligência de Seleção de Contatos e Otimização de Conteúdo (Backlog)
 - [ ] Implementar agentes de IA para análise de perfis de contatos
 - [ ] Desenvolver algoritmos para identificação de contatos com maior potencial de conversão
 - [ ] Criar mecanismos de personalização de conteúdo baseado em perfil
 - [ ] Medir e otimizar taxa de conversão após implementação
+- [ ] Implementar agentes de IA com LangGraph para análise de relatórios de envio
+- [ ] Utilizar IA para análise de aberturas e cliques em links dos emails
+- [ ] Criar otimizações para maior assertividade em vendas através de IA
+- [ ] Implementar geração de variações de títulos com aprovação do usuário
+- [ ] Otimizar corpo do email do template com GenAI e aprovação do usuário
+- [ ] Configurar testes A/B de assuntos no envio de emails
 
 ## 9. Análise de Relatórios de Envio
 
@@ -377,6 +401,20 @@ Com base na análise dos relatórios, o sistema deve gerar listas de contatos qu
 - Tiveram 2 ou mais falhas consecutivas de envio
 - Apresentaram timeouts em múltiplas tentativas
 - Devem ser marcados com a tag 'problem' para evitar reenvios futuros
+
+### 9.3 Análise Avançada com Agentes de IA
+O sistema deve implementar agentes de IA desenvolvidos com LangGraph para análise avançada dos relatórios de envio:
+- Análise de padrões de abertura de emails
+- Análise de cliques em links dos emails
+- Identificação de perfis de contatos com maior taxa de conversão
+- Geração de insights para otimização de conteúdo e timing de envio
+
+### 9.4 Otimização de Conteúdo com GenAI
+Com base na análise dos dados, o sistema deve:
+- Gerar variações de títulos otimizados para maior taxa de abertura
+- Sugerir melhorias no corpo do email para aumentar engajamento
+- Implementar testes A/B de assuntos automaticamente
+- Criar personalizações de conteúdo baseadas no perfil do contato
 
 ### 9.3 Marcação Automática de Contatos
 O sistema deve marcar automaticamente contatos com problemas persistentes:
@@ -408,11 +446,13 @@ O projeto deve seguir a seguinte estrutura organizacional:
    - Arquivos de configuração devem estar no diretório `config/`
    - Templates de email devem estar no diretório `templates/`
    - Relatórios e logs devem ser gerados no diretório `reports/`
+   - Módulos de IA e agentes inteligentes devem estar em `src/email_sender/ai/`
 
 2. **Estrutura de Pacotes**:
    - O código deve ser organizado em pacotes lógicos dentro de `src/`
    - Cada pacote deve conter um arquivo `__init__.py` para definição de exports
    - Módulos relacionados devem ser agrupados em pacotes com nomes significativos
+   - Agentes de IA com LangGraph devem ser implementados em pacotes separados para facilitar manutenção
 
 ### 9.3 Padrões de Codificação
 O código deve seguir os seguintes padrões de codificação:
@@ -421,16 +461,19 @@ O código deve seguir os seguintes padrões de codificação:
    - Nunca colocar `src` nos imports; usar imports relativos ou absolutos corretos
    - Organizar imports em ordem: bibliotecas padrão, bibliotecas de terceiros, imports locais
    - Evitar imports circulares através de uma boa arquitetura
+   - Imports de módulos de IA devem ser feitos de forma lazy para evitar dependências pesadas
 
 2. **Nomenclatura**:
    - Seguir convenções PEP 8 para nomes de variáveis, funções e classes
    - Usar nomes descritivos e significativos
    - Manter consistência na nomenclatura de variáveis e funções
+   - Classes de agentes de IA devem seguir o padrão `NomeAgente` (ex: `OtimizadorConteudoAgente`)
 
 3. **Documentação**:
    - Documentar funções, classes e módulos com docstrings em formato Google Python Style Guide
    - Comentar código complexo quando necessário, mas priorizar código autoexplicativo
    - Manter README.md e documentação atualizados
+   - Documentar modelos e prompts de IA utilizados nos agentes
 
 ### 9.4 Testes e Qualidade
 O sistema deve seguir práticas rigorosas de teste e garantia de qualidade:
@@ -467,4 +510,66 @@ O sistema deve ser projetado para facilitar reutilização e manutenção:
 3. **Versionamento**:
    - Seguir versionamento semântico (SemVer)
    - Manter CHANGELOG.md atualizado com mudanças em cada versão
-   - Excluir arquivos sensíveis e temporários do versionamento Git
+   - Excluir arquivos sensíveis e temporários do versionamento Git## 10. Setup de Envio de Emails
+
+### 10.1 Configuração Avançada de Conteúdo
+O sistema deve fornecer um menu dedicado para setup avançado de envio de emails:
+
+1. **Criação de Títulos Otimizados**:
+   - Geração automática de variações de títulos com GenAI
+   - Apresentação de múltiplas opções para aprovação do usuário
+   - Armazenamento de títulos aprovados para uso em envios
+
+2. **Otimização de Corpo do Email**:
+   - Análise do template HTML com GenAI para sugestões de melhorias
+   - Personalização de conteúdo baseada em perfis de contatos
+   - Aprovação do usuário antes de aplicar mudanças
+
+3. **Testes A/B de Assuntos**:
+   - Configuração automática de testes A/B para diferentes variações de títulos
+   - Distribuição controlada de emails com diferentes assuntos
+   - Análise de resultados para identificar a variação mais eficaz
+
+### 10.2 Processo de Aprovação
+O sistema deve implementar um processo rigoroso de aprovação:
+
+1. **Aprovação de Títulos**:
+   - Geração de 3-5 variações de títulos por GenAI
+   - Interface interativa para seleção e aprovação do usuário
+   - Opção de solicitar novas variações caso nenhuma seja aprovada
+
+2. **Aprovação de Conteúdo**:
+   - Visualização prévia do email otimizado
+   - Feedback do usuário sobre mudanças propostas
+   - Confirmação final antes de salvar alterações
+
+3. **Configuração de Testes A/B**:
+   - Definição de percentual de distribuição para cada variação
+   - Configuração de métricas de sucesso
+   - Agendamento de análise automática de resultados
+
+### 10.3 Integração com Agentes de IA
+O setup de envio deve integrar-se com agentes de IA:
+
+1. **Agentes de Análise**:
+   - Análise de dados históricos de envio para sugestões de otimização
+   - Identificação de padrões de sucesso em títulos e conteúdo
+   - Recomendações baseadas em perfis de contatos
+
+2. **Agentes de Otimização**:
+   - Geração de conteúdo personalizado para diferentes segmentos
+   - Otimização de timing de envio baseada em comportamento dos contatos
+   - Sugestões de melhorias contínuas baseadas em resultados
+
+### 10.4 Separação de Responsabilidades
+O processo de envio deve ser separado do processo de setup:
+
+1. **Envio de Emails**:
+   - Não deve solicitar geração de assunto antes de enviar
+   - Deve utilizar títulos previamente aprovados e configurados
+   - Foco em performance e confiabilidade do envio
+
+2. **Setup de Envio**:
+   - Menu dedicado exclusivamente para configuração avançada
+   - Geração e aprovação de conteúdo com GenAI
+   - Configuração de testes A/B e otimizações

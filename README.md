@@ -693,6 +693,27 @@ O sistema segue os seguintes princípios de desenvolvimento:
 - Versionamento semântico e CHANGELOG.md atualizado
 - Exclusão de arquivos sensíveis do versionamento Git
 
+### Setup Avançado de Envio de Emails
+
+O sistema inclui funcionalidades avançadas de setup de envio de emails:
+
+1. **Otimização de Conteúdo com GenAI**:
+   - Geração automática de variações de títulos
+   - Otimização do corpo do email com sugestões de IA
+   - Processo de aprovação interativa do usuário
+
+2. **Testes A/B de Assuntos**:
+   - Configuração automática de testes A/B
+   - Distribuição controlada de variações de títulos
+   - Análise de resultados para identificar a melhor opção
+
+3. **Separação de Responsabilidades**:
+   - Setup de conteúdo separado do processo de envio
+   - Envio de emails utiliza conteúdo previamente aprovado
+   - Menu dedicado para configuração avançada
+
+Para acessar o setup avançado de envio de emails, use o menu interativo da CLI e selecione a opção "Setup do envio de e-mails".
+
 ### Proteção de Endpoints
 
 O sistema utiliza diferentes tipos de proteção para os endpoints:
