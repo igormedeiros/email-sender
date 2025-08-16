@@ -712,6 +712,26 @@ O sistema inclui funcionalidades avançadas de setup de envio de emails:
    - Envio de emails utiliza conteúdo previamente aprovado
    - Menu dedicado para configuração avançada
 
+### Interface do Terminal Moderna
+
+O sistema utiliza uma interface de terminal moderna baseada em Charm CLI, inspirada no CRUSH AI:
+
+1. **Experiência Visual Aprimorada**:
+   - Interface interativa com menus estilizados
+   - Resumos de envio em formato de tabela otimizado
+   - Tempo de execução exibido em horas quando maior que 1 hora
+   - Ocultação de listagens de sucesso para foco em problemas
+
+2. **Tratamento Inteligente de Contatos**:
+   - Marcação automática de emails inválidos com tag 'invalid'
+   - Ignorar contatos com tags inválidas durante o envio
+   - Resumo detalhado de métricas de envio
+
+3. **Configuração Personalizável**:
+   - Temas visuais configuráveis
+   - Formatos de exibição personalizáveis
+   - Opções de filtragem de informações exibidas
+
 Para acessar o setup avançado de envio de emails, use o menu interativo da CLI e selecione a opção "Setup do envio de e-mails".
 
 ### Proteção de Endpoints

@@ -80,6 +80,10 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
   - Geração de massa de teste
   - Atualização de dados do evento Sympla
   - Análise de relatórios de envio e marcação de contatos problemáticos
+  - Setup avançado de envio de emails com IA
+- Interface do terminal baseada em Charm CLI (CRUSH AI style) para melhor experiência do usuário
+- Resumo de envio otimizado com formato de tabela e exibição de tempo em horas quando necessário
+- Marcação automática de contatos inválidos com tag 'invalid'
 
 ### 2.8 Segurança e Configuração
 - Gerenciar segredos (credenciais SMTP, API keys) através de múltiplas fontes (env, .env, AWS, Azure)
@@ -143,6 +147,7 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 9. **Tracking Service**: Serviço para tracking de abertura e cliques
 10. **Contact Intelligence Service** (Futuro): Serviço para análise inteligente de contatos e personalização de conteúdo (Backlog)
 11. **Scheduling Service**: Serviço para agendamento de envio de emails
+12. **UI Manager**: Gerenciamento de interface do terminal baseada em Charm CLI (CRUSH AI style)
 
 ### 4.2 Tecnologias Utilizadas
 - **Linguagem**: Python 3.12+
@@ -155,6 +160,7 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 - **Notificações**: Telegram Bot API
 - **Inteligência Artificial**: Google Gemini, LangGraph (futuro)
 - **Agendamento**: APScheduler (ou similar)
+- **Interface do Terminal**: Charm CLI (inspirado no CRUSH AI)
 
 ## 5. Fluxos de Trabalho Principais
 
@@ -263,6 +269,13 @@ O Treineinsite Email Sender é uma aplicação robusta em Python para envio de e
 - `ab_test_enabled`: Habilitar testes A/B automaticamente
 - `ab_test_distribution`: Distribuição percentual para testes A/B
 
+### 6.5 Interface do Terminal (`config/ui.yaml`)
+- `theme`: Tema visual para interface do terminal (baseado em Charm CLI)
+- `summary_format`: Formato do resumo de envio (tabela, compacto, etc.)
+- `display_success_list`: Exibir listagem de emails enviados com sucesso (true/false)
+- `time_format`: Formato de exibição do tempo (minutos, horas, automático)
+- `ignored_tags`: Lista de tags que devem ser ignoradas no envio
+
 ## 7. Considerações de Implementação
 
 ### 7.1 Estrutura de Banco de Dados
@@ -274,6 +287,13 @@ O sistema utiliza as seguintes tabelas no PostgreSQL:
 - `tbl_message_logs`: Registra logs de envio
 - `tbl_events`: Armazena informações de eventos
 - `tbl_send_state`: Armazena o estado de envio para retomada de processos interrompidos
+
+Tags especiais utilizadas pelo sistema:
+- `unsubscribed`: Contatos que se descadastraram
+- `bounce`: Contatos com emails que retornaram como não entregues
+- `test`: Contatos utilizados para testes
+- `problem`: Contatos com problemas persistentes de envio
+- `invalid`: Contatos com emails inválidos ou que não puderam ser enviados
 
 ### 7.2 Tratamento de Erros
 - Implementar retentativas para erros de conexão e timeout
@@ -315,6 +335,8 @@ O sistema utiliza as seguintes tabelas no PostgreSQL:
 - [x] Contatos de teste só recebem emails em modo de teste
 - [x] Não há reenvio de emails para contatos que já receberam
 - [x] Processo de limpeza identifica e marca contatos com bounce
+- [ ] Contatos com tags inválidas são ignorados automaticamente
+- [ ] Marcação automática de emails inválidos com tag 'invalid'
 
 ### 8.3 Integração com Sympla
 - [x] Eventos são buscados corretamente na API do Sympla
@@ -332,6 +354,12 @@ O sistema utiliza as seguintes tabelas no PostgreSQL:
 - [x] Menu interativo funciona corretamente
 - [x] Alternância entre ambientes test/prod funciona
 - [x] Comandos principais estão disponíveis e funcionais
+- [ ] Interface do terminal baseada em Charm CLI (CRUSH AI style)
+- [ ] Resumo de envio otimizado com formato de tabela
+- [ ] Tempo de execução exibido em horas quando maior que 1 hora
+- [ ] Listagem de emails enviados com sucesso ocultada por padrão
+- [ ] Contatos com tags inválidas são ignorados automaticamente
+- [ ] Marcação automática de emails inválidos com tag 'invalid'
 
 ### 8.6 Relatórios e Monitoramento
 - [x] Logs são registrados corretamente no PostgreSQL
@@ -494,7 +522,7 @@ O sistema deve seguir práticas rigorosas de teste e garantia de qualidade:
    - Aplicar formatação automática com black para consistência
    - Configurar pre-commit hooks para verificar qualidade antes de commits
 
-### 9.5 Reutilização e Manutenção
+### 9.6 Reutilização e Manutenção
 O sistema deve ser projetado para facilitar reutilização e manutenção:
 
 1. **Componentização**:
@@ -510,7 +538,13 @@ O sistema deve ser projetado para facilitar reutilização e manutenção:
 3. **Versionamento**:
    - Seguir versionamento semântico (SemVer)
    - Manter CHANGELOG.md atualizado com mudanças em cada versão
-   - Excluir arquivos sensíveis e temporários do versionamento Git## 10. Setup de Envio de Emails
+   - Excluir arquivos sensíveis e temporários do versionamento Git
+
+4. **Interface do Terminal**:
+   - Utilizar bibliotecas Charm CLI para interface moderna e interativa
+   - Seguir padrões de design inspirados no CRUSH AI
+   - Manter consistência visual em todos os componentes da interface
+   - Facilitar a leitura e interpretação dos relatórios de envio## 10. Setup de Envio de Emails
 
 ### 10.1 Configuração Avançada de Conteúdo
 O sistema deve fornecer um menu dedicado para setup avançado de envio de emails:
