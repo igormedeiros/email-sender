@@ -293,6 +293,23 @@ Este comando sincroniza automaticamente a lista de descadastros e bounces (a men
 >
 > Não é possível executar o comando sem especificar um destes modos, evitando envios acidentais.
 
+#### Análise de Relatórios de Envio
+
+O sistema inclui ferramentas para análise de relatórios de envio e identificação de contatos com problemas persistentes:
+
+```bash
+# Analisar emails com falhas repetidas
+python analyze_failed_emails.py
+
+# Verificar contatos marcados como problemáticos
+python check_problematic_contacts.py
+
+# Remover a tag 'problem' de um contato específico
+python remove_problem_tag.py <contact_id>
+```
+
+Essas ferramentas ajudam a manter a qualidade da base de contatos identificando e marcando automaticamente emails que apresentam problemas persistentes de envio.
+
 Parâmetros:
 
 - `template`: Nome ou caminho do template HTML a ser usado (obrigatório)
@@ -506,6 +523,16 @@ Para garantir a segurança das informações, os seguintes tipos de arquivos sã
 - **Configurações**: arquivos YAML na pasta `config/`
 - **Templates de Email**: arquivos HTML na pasta `templates/`
 - **Logs e Relatórios**: arquivos na pasta `reports/`
+
+### 📊 Análise de Relatórios de Envio
+
+O sistema inclui ferramentas para análise de relatórios de envio e identificação de contatos com problemas persistentes:
+
+1. **analyze_failed_emails.py**: Analisa relatórios de envio e gera listas de emails com falhas repetidas
+2. **check_problematic_contacts.py**: Verifica contatos marcados como problemáticos
+3. **remove_problem_tag.py**: Remove a tag 'problem' de um contato específico
+
+Essas ferramentas ajudam a manter a qualidade da base de contatos identificando e marcando automaticamente emails que apresentam problemas persistentes de envio.
 
 ### 📝 Arquivos de Exemplo
 
