@@ -11,12 +11,23 @@ from typing import List, Dict, Optional, Any
 from enum import Enum
 from datetime import datetime, timedelta
 
-from .config import Config # Changed to relative import
-from .email_service import EmailService # Changed to relative import
-from .utils.ui import print_banner, build_treineinsite_ascii_art
+from .config import Config
+from .db import Database
+from .email_service import EmailService
+from .utils.ui import (
+    build_treineinsite_ascii_art,
+    error,
+    info,
+    print_banner,
+    success,
+)
+from .logging_config import setup_logging
 
 # Configuração do logger
 log = logging.getLogger("email_sender")
+
+# Configurar logging
+setup_logging()
 
 # Definição do modo de envio
 class SendMode(str, Enum):
@@ -57,17 +68,15 @@ signal.signal(signal.SIGINT, interrupt_handler)
 
 @app.command()
 def send_emails(
-    csv_file: str = typer.Option(None, help="Path to CSV file containing email recipients"),
     subject: str = typer.Option(None, "--subject", "-s", help="[OBSOLETO] O assunto será sempre lido do arquivo email.yaml"),
     titulo: str = typer.Option(None, "--titulo", "-t", help="Título personalizado para os emails"),
     config_file: str = typer.Option("config/config.yaml", "--config", "-c", help="Path to config file"),
     content_file: str = typer.Option("config/email.yaml", "--content", help="Path to email content file"),
     skip_unsubscribed_sync: bool = typer.Option(False, "--skip-sync", help="Skip unsubscribed emails synchronization before sending"),
-    mode: SendMode = typer.Option(None, help="Modo de envio: --mode=test ou --mode=production. Se omitido, usa ENVIRONMENT do .env"),
-    bounces_file: str = typer.Option("data/bounces.csv", "--bounces-file", help="Caminho para o arquivo CSV com emails de bounce (coluna 'email')")
+    mode: SendMode = typer.Option(None, help="Modo de envio: --mode=test ou --mode=production. Se omitido, usa ENVIRONMENT do .env")
 ):
     """
-    Send batch HTML emails using a CSV file and HTML email template.
+    Send batch HTML emails using database and HTML email template.
     The HTML template path is now read from the email.yaml configuration file.
     """
     try:
@@ -99,18 +108,16 @@ def send_emails(
         print(f"Modo resolvido: {resolved_mode} (ENVIRONMENT={config.environment_mode})")
 
         # Em ambiente de teste, usar base Postgres (sql/) e segmentação de teste
-        if resolved_mode == "test" and not csv_file:
+        if resolved_mode == "test":
             print("Ambiente de teste detectado — enviando para segmento de teste no Postgres (sql/)...")
             # No modo teste, enviar para até 3 contatos de teste (quando disponíveis)
             result = email_service.send_email_to_test_recipient(template_path, limit=3)
         else:
             # Caminho legado/compatível: permite CSV explícito quando informado
             result = email_service.process_email_sending(
-                csv_file=csv_file,
                 template=template_path,
                 skip_unsubscribed_sync=skip_unsubscribed_sync,
-                is_test_mode=(resolved_mode == "test"),
-                bounces_file_path=bounces_file
+                is_test_mode=(resolved_mode == "test")
             )
         
         print("\n✅ Email sending completed!")
@@ -136,6 +143,29 @@ def send_emails(
         sys.exit(1)
 
 # test_smtp command removed as part of code cleanup
+
+
+@app.command()
+def reset_send_state(
+    config_file: str = typer.Option(
+        "config/config.yaml", "--config", "-c", help="Path to config file"
+    ),
+    content_file: str = typer.Option(
+        "config/email.yaml", "--content", help="Path to email content file"
+    ),
+):
+    """
+    Limpa a tabela de estado de envio (tbl_send_state) para permitir um novo envio para toda a base.
+    """
+    try:
+        info("Limpando estado de envio para permitir novo disparo...")
+        cfg = Config(config_file, content_file)
+        with Database(cfg) as db:
+            db.execute("sql/runtime/reset_send_state.sql")
+        success("Estado de envio reiniciado. Você pode disparar os emails novamente.")
+    except Exception as e:
+        error(f"Falha ao limpar o estado de envio: {e}")
+        raise Exit(1)
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ import requests
 import re
 from urllib.parse import urlparse
 import json
+import logging
 
 import typer
 from prompt_toolkit.application import Application
@@ -18,8 +19,8 @@ from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
 
-from .controller_cli import app
-from .utils.ui import (
+from email_sender.controller_cli import app
+from email_sender.utils.ui import (
     print_banner,
     build_treineinsite_ascii_art,
     info as ui_info,
@@ -29,12 +30,16 @@ from .utils.ui import (
     section as ui_section,
     get_console,
 )
-from .config import Config
-from .email_templating import TemplateProcessor
+from email_sender.config import Config
+from email_sender.email_templating import TemplateProcessor
+from email_sender.logging_config import setup_logging
 from datetime import datetime
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+
+# Configurar logging
+setup_logging()
 
 
 def main(
@@ -56,7 +61,7 @@ def main(
         os.environ["ENVIRONMENT"] = "prod" if selected_env == "production" else "test"
 
         if choice == "Enviar emails (toda a base)":
-            from .controller_cli import send_emails
+            from email_sender.controller_cli import send_emails
             config_file, content_file = _ensure_or_create_default_config()
 
             # Garantir remetente válido
@@ -78,7 +83,6 @@ def main(
             try:
                 # Chamada programática: passar valores primitivos (não OptionInfo)
                 send_emails(
-                    csv_file=None,
                     subject=None,
                     titulo=None,
                     config_file=str(config_file),
@@ -94,6 +98,18 @@ def main(
                     typer.echo(f"\n❌ Erro: {msg}")
             continue
         
+        elif choice == "Limpar estado de envio (resetar flags)":
+            from email_sender.controller_cli import reset_send_state
+            config_file, content_file = _ensure_or_create_default_config()
+            try:
+                reset_send_state(
+                    config_file=str(config_file),
+                    content_file=str(content_file),
+                )
+            except Exception as e:
+                ui_error(f"Falha ao limpar estado de envio: {e}")
+            continue
+
         elif choice == "Auto-teste (diagnóstico geral)":
             _self_test()
             continue
@@ -102,7 +118,7 @@ def main(
                 # Executar SQL de seed para criar 3 contatos com tags
                 cfg_path, _ = _ensure_or_create_default_config()
                 cfg = Config(str(cfg_path))
-                from .db import Database
+                from email_sender.db import Database
                 with Database(cfg) as db:
                     db.execute("sql/fixtures/seed_contacts_exclusions.sql")
                 ui_success("Massa de teste criada: igor.medeiros@gmail.com (test), unsub@test.com (unsubscribed), bounce@test.com (bounce)")
@@ -162,6 +178,7 @@ def _run_interactive_menu(initial_env: str) -> Tuple[str, str]:
     """
     menu_items: List[str] = [
         "Enviar emails (toda a base)",
+        "Limpar estado de envio (resetar flags)",
         "Auto-teste (diagnóstico geral)",
         "Gerar massa de teste (contatos: válido/unsub/bounce)",
         "Atualizar dados do evento Sympla",
@@ -287,12 +304,9 @@ def _ensure_or_create_default_config() -> Tuple[Path, Path]:
             "email:\n"
             "  sender: \"\"\n"
             "  batch_size: 200\n"  # número de emails por lote antes de pausar
-            "  csv_file: \"data/emails_geral.csv\"\n"
             "  test_recipient: \"\"\n"
             "  batch_delay: 5\n"  # pausa (segundos) entre lotes
             "  public_domain: \"mkt.treineinsite.com.br\"\n"
-            "  unsubscribe_file: \"data/descadastros.csv\"\n"
-            "  test_emails_file: \"data/test_emails.csv\"\n"
         )
         config_path.write_text(config_yaml, encoding="utf-8")
 

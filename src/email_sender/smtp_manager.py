@@ -82,6 +82,11 @@ class SmtpManager:
 
 
     def _create_message(self, to_email: str, subject: str, content: str, is_html: bool = False) -> MIMEMultipart:
+        log.debug(f"Criando mensagem para: {to_email}")
+        log.debug(f"Assunto: {subject}")
+        log.debug(f"Conteúdo (primeiros 200 caracteres): {content[:200] if content else 'Conteúdo vazio'}")
+        log.debug(f"is_html: {is_html}")
+        
         message = MIMEMultipart("alternative")
         message["Subject"] = subject
         
@@ -95,19 +100,23 @@ class SmtpManager:
         message["To"] = to_email
         
         if not is_html:
+            log.debug("Criando parte de texto simples")
             text_part = MIMEText(content, "plain", "utf-8")
             message.attach(text_part)
         else:
+            log.debug("Criando partes MIME para email HTML")
             # Create plain text version from HTML
             text_content = re.sub(r'<style[^<]*</style>', '', content, flags=re.IGNORECASE | re.DOTALL) # Remove style blocks
             text_content = re.sub(r'<[^>]+>', '', text_content) # Strip all other HTML tags
             text_content = re.sub(r'\\s+', ' ', text_content).strip() # Normalize whitespace
             
+            log.debug(f"Texto plano gerado (primeiros 200 caracteres): {text_content[:200] if text_content else 'Texto vazio'}")
             text_part = MIMEText(text_content, "plain", "utf-8")
             message.attach(text_part)
             
             html_part = MIMEText(content, "html", "utf-8")
             message.attach(html_part)
+            log.debug("Partes HTML e texto adicionadas à mensagem")
             
         return message
 
@@ -116,6 +125,11 @@ class SmtpManager:
         Sends a single email.
         """
         try:
+            log.debug(f"Iniciando envio de email para: {to_email}")
+            log.debug(f"Assunto: {subject}")
+            log.debug(f"Tamanho do conteúdo: {len(content) if content else 0}")
+            log.debug(f"is_html: {is_html}")
+            
             message = self._create_message(to_email, subject, content, is_html)
             with self._create_smtp_connection() as smtp:
                 log.info(f"Sending email to: {to_email} with subject: '{subject}'")

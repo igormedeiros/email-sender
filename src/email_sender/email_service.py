@@ -9,7 +9,7 @@ import math
 
 from .config import Config
 from .email_templating import TemplateProcessor
-from .reporting import ReportGenerator
+from .infrastructure.reporting import TextReportGenerator
 from .utils.ui import get_console, notify_telegram
 from .smtp_manager import SmtpManager
 from .db import Database
@@ -19,9 +19,9 @@ log = logging.getLogger("email_sender")
 class EmailService:
     def __init__(self, config: Config):
         self.config = config
-        # Passa apenas content_config para o TemplateProcessor para garantir compatibilidade
-        self.template_processor = TemplateProcessor(config.content_config if hasattr(config, 'content_config') else config)
-        self.report_generator = ReportGenerator(reports_dir=self.config.email_config.get("reports_dir", "reports"))
+        # Passa o conteúdo do email.yaml para o TemplateProcessor
+        self.template_processor = TemplateProcessor(self.config.email_content)
+        self.report_generator = TextReportGenerator(reports_dir=self.config.email_config.get("reports_dir", "reports"))
         self.smtp_manager = SmtpManager(config)
 
     # Carrega o prompt de geração de assunto a partir de arquivo externo
@@ -330,7 +330,7 @@ class EmailService:
 
         with Database(self.config) as db:
             # Dados do evento devem vir do YAML (config/email.yaml -> seção 'evento')
-            evento_cfg = (self.config.content_config or {}).get("evento", {}) if hasattr(self.config, 'content_config') else {}
+            evento_cfg = (self.config.email_content or {}).get("evento", {})
             state = str(evento_cfg.get("uf") or evento_cfg.get("state") or "")
             now = datetime.now()
             month = f"{now.month:02d}"
@@ -376,6 +376,16 @@ class EmailService:
                 total_send_attempts += 1
                 try:
                     console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
+                    # Enriquecer recipient com IDs necessários para tracking
+                    try:
+                        if isinstance(recipient, dict):
+                            # contact_id sai de recipients SQL como 'id'
+                            if recipient.get("id") is not None:
+                                recipient["contact_id"] = recipient.get("id")
+                            # message_id foi criado acima
+                            recipient["message_id"] = message_id
+                    except Exception:
+                        pass
                     html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
                     # Gerar assunto UMA VEZ no modo teste (com base no primeiro email)
                     if final_subject_for_test is None:
@@ -479,6 +489,10 @@ class EmailService:
             HTML formatado
         """
         try:
+            log.debug(f"Iniciando processamento de template em: {template_path}")
+            log.debug(f"Dados do recipient: {recipient}")
+            log.debug(f"Assunto do email: {email_subject}")
+            
             # Antes de processar o template, garantir que o link do evento tenha o cupom aplicado
             # O cupom padrão pode vir do YAML ou do Postgres (evento ativo)
             self._ensure_event_coupon_and_link()
@@ -489,10 +503,21 @@ class EmailService:
                 if domain:
                     urls = self.template_processor.content_config.setdefault("urls", {})
                     urls.setdefault("unsubscribe", f"https://{domain}/api/unsubscribe")
+                    # Base da API para tracking (open/click)
+                    urls.setdefault("base_api", f"https://{domain}")
             except Exception:
                 pass
+            
+            log.debug(f"Content config após _ensure_event_coupon_and_link: {self.template_processor.content_config}")
+            
             # Corrected method call to 'process' and ensure template_path is a Path object
-            return self.template_processor.process(Path(template_path), recipient)
+            html_content = self.template_processor.process(Path(template_path), recipient)
+            log.debug(f"Conteúdo HTML processado (tamanho: {len(html_content)})")
+            if not html_content:
+                log.error("Conteúdo HTML vazio após processamento!")
+            else:
+                log.debug(f"Primeiros 200 caracteres do HTML: {html_content[:200]}")
+            return html_content
         except Exception as e:
             log.error(f"Erro ao processar template via TemplateProcessor: {str(e)}")
             if isinstance(e, AttributeError):
@@ -509,7 +534,7 @@ class EmailService:
         - Sempre que houver cupom e link, aplica/força `?d=<cupom>` (ou `&d=`) no link
         """
         try:
-            evento_cfg = (self.config.email_content or {}).setdefault("evento", {})
+            evento_cfg = (self.config.email_content or {}).get("evento", {})
             # Cupom padrão se nada vier do YAML/DB
             default_coupon = ( __import__('os').environ.get("DEFAULT_COUPON", "CINA30").strip() or "CINA30" )
 
@@ -818,6 +843,19 @@ class EmailService:
                                         pass
 
                                     html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
+                                    log.debug(f"HTML gerado para {recipient_email} (tamanho: {len(html_content)})")
+                                    if not html_content:
+                                        log.error(f"HTML vazio gerado para {recipient_email}")
+                                        progress.console.print(f"[red]❌ HTML vazio gerado para {recipient_email}[/red]")
+                                        failed += 1
+                                        email_results.append({
+                                            'email': recipient_email,
+                                            'status': '[red]Falha[/red]',
+                                            'tentativas': '0',
+                                            'detalhes': 'HTML vazio'
+                                        })
+                                        continue
+                                    
                                     # Gerar assunto UMA ÚNICA VEZ para todo o lote, com base no primeiro corpo
                                     if final_subject_for_batch is None:
                                         console.print("[cyan]Gerando assunto do lote com base no conteúdo do primeiro email...[/cyan]")
@@ -843,6 +881,11 @@ class EmailService:
                                             pass
                                         notified_start = True
                                     
+                                    log.debug(f"Enviando email para {recipient_email} - Subject: {email_subject}")
+                                    log.debug(f"Tamanho do HTML antes do envio: {len(html_content)}")
+                                    if len(html_content.strip()) == 0:
+                                        raise ValueError("HTML vazio antes do envio")
+                                        
                                     self.smtp_manager.send_email(
                                         to_email=recipient_email,
                                         subject=email_subject,
