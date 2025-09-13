@@ -147,7 +147,8 @@ class TemplateProcessor:
             import os as _os
             locale_pref = locale_pref or _os.environ.get("EVENT_DATE_LOCALE") or _os.environ.get("LOCALE") or "pt_BR"
             # tenta separar duas partes por ' a '
-            parts = [p.strip() for p in re.split(r"\s+a\s+", raw)]
+            import re as regex_module
+            parts = [p.strip() for p in regex_module.split(r"\s+a\s+", raw)]
             if len(parts) == 1:
                 y, m, d = _parse_ymd(parts[0])
                 if all(v is not None for v in (y, m, d)):

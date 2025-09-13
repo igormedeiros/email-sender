@@ -1,13 +1,23 @@
-\
+"""Implementa o relatório de envios em modo texto puro."""
+
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 
+from ..interfaces.reporting import ReportingInterface
+
 log = logging.getLogger(__name__)
 
-class ReportGenerator:
+class TextReportGenerator(ReportingInterface):
+    """Gerador de relatórios em formato texto."""
+
     def __init__(self, reports_dir: str = "reports"):
+        """Inicializa o gerador definindo diretório de saída.
+        
+        Args:
+            reports_dir: Caminho do diretório onde salvar relatórios
+        """
         self.reports_dir = Path(reports_dir)
         self.reports_dir.mkdir(exist_ok=True)
 
@@ -22,13 +32,24 @@ class ReportGenerator:
         ignored_unsubscribed: int | None = None,
         ignored_bounces: int | None = None,
     ) -> Dict[str, Any]:
-        """
-        Generates a report of the email sending process.
+        """Gera um relatório do processo de envio em texto plano.
+        
+        Args:
+            start_time: Timestamp de início
+            end_time: Timestamp de fim 
+            total_sent: Total de emails tentados
+            successful: Total enviado com sucesso
+            failed: Total de falhas
+            ignored_unsubscribed: (Opcional) Total de descadastrados ignorados
+            ignored_bounces: (Opcional) Total de bounces ignorados
+            
+        Returns:
+            Dict com os dados do relatório e métricas
         """
         duration = end_time - start_time
         avg_time = duration / total_sent if total_sent > 0 else 0
 
-        # Calculate hours, minutes, and seconds
+        # Calcula horas, minutos e segundos
         horas = int(duration // 3600)
         minutos = int((duration % 3600) // 60)
         segundos = int(duration % 60)
@@ -59,12 +80,12 @@ Tempo médio por email: {avg_time:.2f} segundos
             log.info(f"Report generated: {report_path}")
         except IOError as e:
             log.error(f"Failed to write report file {report_path}: {e}")
-            # Fallback or re-raise, depending on desired error handling
+            # Falha controlada - propaga erro
             raise
 
         return {
             "report": report_content,
-            "report_file": str(report_path), # Return full path
+            "report_file": str(report_path),  # Retorna caminho completo
             "duration": duration,
             "avg_time": avg_time,
             "total_sent": total_sent,
@@ -76,8 +97,13 @@ Tempo médio por email: {avg_time:.2f} segundos
         }
 
     def generate_error_report(self, error_message: str) -> Dict[str, Any]:
-        """
-        Generates a simplified error report when a major failure occurs.
+        """Gera um relatório simplificado quando ocorre uma falha grave.
+        
+        Args:
+            error_message: Mensagem de erro a ser registrada
+            
+        Returns:
+            Dict com dados do relatório de erro
         """
         report_file_name = f"email_report_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         report_path = self.reports_dir / report_file_name
@@ -93,12 +119,12 @@ Erro: {error_message}
             log.info(f"Error report generated: {report_path}")
         except IOError as e:
             log.error(f"Failed to write error report file {report_path}: {e}")
-            # Fallback or re-raise
+            # Falha controlada - propaga erro
             raise
 
         return {
             "status": "error",
             "error": error_message,
-            "report_file": str(report_path), # Return full path
+            "report_file": str(report_path),  # Retorna caminho completo
             "report": f"Erro: {error_message}"
         }

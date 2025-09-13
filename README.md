@@ -47,7 +47,7 @@ Sistema robusto para envio de emails em lote com suporte a banco de dados Postgr
   uv run treineinsite-sendemails
   ```
   - Setas para navegar; Enter para selecionar; TAB alterna `ENVIRONMENT` entre `test` e `production`.
-  - Se o prompt/lista ficarem “colados” em uma linha, rode sem buffer:
+  - Se o prompt/lista ficarem "colados" em uma linha, rode sem buffer:
     ```bash
     uv run -u treineinsite-sendemails
     # ou
@@ -229,7 +229,7 @@ A documentação segue o formato [OpenAPI 3.0](https://swagger.io/specification/
 O sistema requer a criação da tabela `tbl_send_state` para rastrear o estado dos envios e permitir a retomada de processos interrompidos. Para inicializar o banco de dados, execute:
 
 ```bash
-python3 init_db.py
+python3 scripts/init_db.py
 ```
 
 Este script criará a tabela `tbl_send_state` no banco de dados PostgreSQL configurado nas variáveis de ambiente.
@@ -266,7 +266,7 @@ Resposta esperada:
 
 #### Enviar Emails
 
-Antes de enviar emails, certifique-se de que o banco de dados foi inicializado corretamente executando o script `init_db.py`. Isso criará a tabela `tbl_send_state` necessária para rastrear o estado dos envios e permitir a retomada de processos interrompidos.
+Antes de enviar emails, certifique-se de que o banco de dados foi inicializado corretamente executando o script `scripts/init_db.py`. Isso criará a tabela `tbl_send_state` necessária para rastrear o estado dos envios e permitir a retomada de processos interrompidos.
 
 Envie emails usando um template e planilha, especificando obrigatoriamente o modo de envio:
 
@@ -299,13 +299,13 @@ O sistema inclui ferramentas para análise de relatórios de envio e identifica�
 
 ```bash
 # Analisar emails com falhas repetidas
-python analyze_failed_emails.py
+python scripts/analyze_failed_emails.py
 
 # Verificar contatos marcados como problemáticos
-python check_problematic_contacts.py
+python scripts/check_problematic_contacts.py
 
 # Remover a tag 'problem' de um contato específico
-python remove_problem_tag.py <contact_id>
+python scripts/remove_problem_tag.py <contact_id>
 ```
 
 Essas ferramentas ajudam a manter a qualidade da base de contatos identificando e marcando automaticamente emails que apresentam problemas persistentes de envio.
@@ -528,9 +528,9 @@ Para garantir a segurança das informações, os seguintes tipos de arquivos sã
 
 O sistema inclui ferramentas para análise de relatórios de envio e identificação de contatos com problemas persistentes:
 
-1. **analyze_failed_emails.py**: Analisa relatórios de envio e gera listas de emails com falhas repetidas
-2. **check_problematic_contacts.py**: Verifica contatos marcados como problemáticos
-3. **remove_problem_tag.py**: Remove a tag 'problem' de um contato específico
+1. **scripts/analyze_failed_emails.py**: Analisa relatórios de envio e gera listas de emails com falhas repetidas
+2. **scripts/check_problematic_contacts.py**: Verifica contatos marcados como problemáticos
+3. **scripts/remove_problem_tag.py**: Remove a tag 'problem' de um contato específico
 
 Essas ferramentas ajudam a manter a qualidade da base de contatos identificando e marcando automaticamente emails que apresentam problemas persistentes de envio.
 
@@ -754,3 +754,11 @@ Os seguintes endpoints estão protegidos:
 | `/api/config`                   | GET    | role_required('admin') | Obter configurações                  |
 | `/api/config`                   | PUT    | role_required('admin') | Atualizar configurações              |
 | `/api/config/partial`           | PATCH  | role_required('admin') | Atualizar configurações parcialmente |
+
+## Histórico de Atualizações
+
+### Setembro 2025
+- Correção do teste falhando em CLI helpers relacionado à variável de ambiente EMAIL_SENDER
+- Adição de novos testes para melhorar a cobertura de código
+- Simplificação da estrutura do projeto mantendo a funcionalidade principal
+- Atualização da documentação para refletir as mudanças atuais

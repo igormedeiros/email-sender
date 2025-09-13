@@ -48,3 +48,72 @@ def test_template_processor_adds_coupon_when_present():
         assert "d=CUPOM10" in out
         assert out.count("?") == 1
 
+
+def test_template_processor_handles_missing_config_gracefully():
+    """Test that TemplateProcessor handles missing config gracefully."""
+    html = "<p>{email}</p>"
+    with tempfile.TemporaryDirectory() as tmp:
+        tpl_path = Path(tmp) / "tpl.html"
+        tpl_path.write_text(html, encoding="utf-8")
+        # Test with empty config
+        tp = TemplateProcessor({})
+        out = tp.process(tpl_path, {"email": "user@test"})
+        assert "user@test" in out
+
+
+def test_template_processor_handles_complex_placeholders():
+    """Test that TemplateProcessor handles complex placeholder replacements."""
+    html = """
+    <html><body>
+    <p>{nome}</p>
+    <p>{empresa}</p>
+    <p>{email.template_path}</p>
+    <p>{evento.nome}</p>
+    </body></html>
+    """.strip()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tpl_path = Path(tmp) / "tpl.html"
+        tpl_path.write_text(html, encoding="utf-8")
+        config = {
+            "email": {
+                "template_path": "config/templates/email.html"
+            },
+            "evento": {
+                "nome": "Evento Importante"
+            }
+        }
+        tp = TemplateProcessor(config)
+        out = tp.process(tpl_path, {
+            "email": "user@test", 
+            "nome": "João Silva",
+            "empresa": "Empresa XYZ"
+        })
+        assert "João Silva" in out
+        assert "Empresa XYZ" in out
+        assert "config/templates/email.html" in out
+        assert "Evento Importante" in out
+
+
+def test_template_processor_handles_unsubscribe_urls():
+    """Test that TemplateProcessor correctly handles unsubscribe URLs."""
+    html = """
+    <html><body>
+    <p><a href="{unsubscribe_full}">Unsubscribe</a></p>
+    <p><a href="{unsubscribe_safe_url}">Safe Unsubscribe</a></p>
+    </body></html>
+    """.strip()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tpl_path = Path(tmp) / "tpl.html"
+        tpl_path.write_text(html, encoding="utf-8")
+        config = {
+            "urls": {
+                "unsubscribe": "https://mkt.treineinsite.com.br/api/unsubscribe"
+            }
+        }
+        tp = TemplateProcessor(config)
+        out = tp.process(tpl_path, {"email": "user@test"})
+        assert "user@test" in out
+        assert "mkt.treineinsite.com.br" in out
+

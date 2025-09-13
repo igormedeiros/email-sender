@@ -8,6 +8,8 @@ class DummyConfig:
     def __init__(self):
         self._content = {"email": {"template_path": ""}}
         self._email = {}
+        # Add email_content attribute for compatibility
+        self.email_content = self._content
 
     @property
     def content_config(self):

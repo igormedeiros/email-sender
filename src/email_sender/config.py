@@ -124,20 +124,11 @@ class Config:
 
     @property
     def email_config(self) -> dict:
-        # Permitir ambas as chaves para compatibilidade: test_csv_file e test_emails_file
-        test_csv_file = self.config["email"].get(
-            "test_csv_file",
-            self.config["email"].get("test_emails_file", "data/test_emails.csv"),
-        )
         return {
             "sender": self.config["email"].get("sender", ""),
             "batch_size": int(self.config["email"].get("batch_size", 10)),
-            "csv_file": self.config["email"].get("csv_file", "data/emails_geral.csv"),
             "test_recipient": self.config["email"].get("test_recipient"),
             "batch_delay": int(self.config["email"].get("batch_delay", 60)),
-            "unsubscribe_file": self.config["email"].get("unsubscribe_file", "data/descadastros.csv"),
-            "test_emails_file": test_csv_file,
-            "test_csv_file": test_csv_file,
             "public_domain": self.config["email"].get("public_domain", "mkt.treineinsite.com.br"),
         }
 

@@ -666,6 +666,17 @@ def _ensure_valid_sender(config_path: Path) -> None:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
         email_cfg = data.get("email", {}) if isinstance(data, dict) else {}
         sender = str(email_cfg.get("sender", "")).strip()
+        
+        # Check if EMAIL_SENDER environment variable is set
+        env_sender = os.environ.get("EMAIL_SENDER", "").strip()
+        if env_sender:
+            # Use environment variable sender and update config file
+            email_cfg["sender"] = env_sender
+            data["email"] = email_cfg
+            config_path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            typer.echo(f"✅ Remetente atualizado em {config_path}")
+            return
+            
         if not sender:
             typer.echo("\n⚠ Remetente (From) não configurado corretamente no config.yaml.")
             typer.echo("Informe um remetente autorizado no provedor SMTP (ex.: nome <no-reply@seu-dominio.com.br>)")

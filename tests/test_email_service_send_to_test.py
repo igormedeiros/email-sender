@@ -39,6 +39,8 @@ class FakeConfig:
             "template_path": str(tmp_template),
         }
         self._content = {"email": self._email}
+        # Add email_content attribute for compatibility
+        self.email_content = self._content
 
     @property
     def content_config(self):

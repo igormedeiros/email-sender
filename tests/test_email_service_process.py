@@ -63,7 +63,9 @@ def test_process_email_sending_success(monkeypatch, tmp_path):
     tpl = tmp_path / "t.html"
     tpl.write_text("<html><head><title>Convite PT</title></head><body><h1>PowerTreine Goiânia</h1>Hi {email}</body></html>", encoding="utf-8")
 
-    monkeypatch.setattr(es, "Database", lambda cfg: FakeDb())
+    # Create a FakeDb instance and capture it
+    fake_db = FakeDb()
+    monkeypatch.setattr(es, "Database", lambda cfg: fake_db)
     # Count subject generation calls (should be ONCE for whole batch)
     calls = {"gen": 0, "maybe": 0}
     def _fake_generate(self, body_html, existing_subject=None, **kwargs):
@@ -86,7 +88,7 @@ def test_process_email_sending_success(monkeypatch, tmp_path):
     assert result["successful"] == 2
     assert len(fake_smtp.calls) == 2
     # Ensure we used the SQL that excludes unsubscribed/bounces
-    assert any("select_contacts_simple.sql" in call[0] for call in db.executed + db.fetches)
+    assert any("select_contacts_simple.sql" in call[0] for call in fake_db.executed + fake_db.fetches)
     # Subject should be generated/approved only once for the whole batch
     assert calls["gen"] == 1
     assert calls["maybe"] == 1

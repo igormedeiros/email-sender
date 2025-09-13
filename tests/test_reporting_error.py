@@ -1,5 +1,5 @@
 from pathlib import Path
-from email_sender.reporting import ReportGenerator
+from email_sender.infrastructure.reporting import TextReportGenerator as ReportGenerator
 
 def test_generate_error_report(tmp_path: Path):
     rg = ReportGenerator(reports_dir=str(tmp_path))

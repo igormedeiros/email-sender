@@ -20,7 +20,12 @@ class EmailService:
     def __init__(self, config: Config):
         self.config = config
         # Passa o conteúdo do email.yaml para o TemplateProcessor
-        self.template_processor = TemplateProcessor(self.config.email_content)
+        # Handle both email_content attribute and content_config property
+        email_content = getattr(self.config, 'email_content', None)
+        if email_content is None:
+            # Fallback to content_config property if email_content is not available
+            email_content = getattr(self.config, 'content_config', {})
+        self.template_processor = TemplateProcessor(email_content)
         self.report_generator = TextReportGenerator(reports_dir=self.config.email_config.get("reports_dir", "reports"))
         self.smtp_manager = SmtpManager(config)
 
@@ -608,12 +613,20 @@ class EmailService:
             # Não bloquear envio por falha ao resolver cupom/link
             return
 
-    def generate_report(self, start_time: float, end_time: float, total_sent: int, successful: int, failed: int) -> Dict[str, Any]:
+    def generate_report(self, start_time: float, end_time: float, total_sent: int, successful: int, failed: int, *, ignored_unsubscribed: int | None = None, ignored_bounces: int | None = None) -> Dict[str, Any]:
         """
         Gera um relatório do processo de envio de emails usando ReportGenerator.
         """
         try:
-            return self.report_generator.generate_report(start_time, end_time, total_sent, successful, failed)
+            return self.report_generator.generate_report(
+                start_time, 
+                end_time, 
+                total_sent, 
+                successful, 
+                failed,
+                ignored_unsubscribed=ignored_unsubscribed,
+                ignored_bounces=ignored_bounces
+            )
         except Exception as e:
             log.error(f"Erro ao gerar relatório via ReportGenerator: {str(e)}")
             raise

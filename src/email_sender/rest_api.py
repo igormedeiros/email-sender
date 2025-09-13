@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import uvicorn
-from fastapi import FastAPI, Query, Body, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Query, Body, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from .config import Config
 from .db import Database
+from .tracking import TrackingUrlValidator
 
 app = FastAPI(title="Treineinsite Email Sender API", version="0.1.0")
 
@@ -40,6 +41,40 @@ async def unsubscribe_post(payload: dict = Body(..., description="{ 'email': 'co
     email_norm = _normalize_email(str(payload.get("email", "")))
     affected = _do_unsubscribe(email_norm)
     return JSONResponse({"status": "ok", "email": email_norm, "affected": affected})
+
+
+@app.get("/api/tracking/open")
+async def track_open(request: Request, contact_id: int = Query(...), message_id: int = Query(...)) -> Response:
+    """Registra abertura de email e retorna um pixel 1x1 transparente."""
+    cfg = Config()
+    client_ip = request.headers.get("x-forwarded-for") or request.client.host
+
+    with Database(cfg) as db:
+        try:
+            db.execute("sql/messages/insert_open_log.sql", (contact_id, message_id, client_ip))
+            # Opcional: atualizar lead score e tag
+            try:
+                db.execute("sql/leads/upsert_open_score.sql", (contact_id,))
+            except Exception:
+                pass
+            try:
+                db.execute("sql/tags/assign_tag_opened.sql", (contact_id,))
+            except Exception:
+                pass
+        except Exception as e:
+            # Não propaga erro para não quebrar pixel
+            pass
+
+    # Retorna um pixel PNG transparente
+    # 1x1 GIF também aceitável, mas vamos usar PNG em bytes
+    pixel_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+        b"\x00\x00\x00\x0bIDATx\x9cc````\x00\x00\x00\x05\x00\x01\x0d\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    return Response(content=pixel_png, media_type="image/png")
+
+
+"""Endpoint de tracking de cliques foi removido."""
 
 
 if __name__ == "__main__":

@@ -28,8 +28,7 @@ treineinsite-sendemails = "email_sender.cli:main"
 # ————————————————————————————
 # Grupos de dependência (PEP 735)
 # ————————————————————————————
-[dependency-groups]
-# tudo que vai pra produção
+[project.optional-dependencies]
 default = [
     "uvicorn[standard]",
     "fastapi",
@@ -43,13 +42,14 @@ default = [
     "pyfiglet>=0.8.post1",
 ]
 
-# ferramentas de desenvolvimento/teste
 dev = [
     "pytest>=8.2",
     "pytest-cov>=5.0",
     "black>=24.3",
     "isort>=5.13",
     "mypy>=1.10",
+    "uvicorn[standard]",  # Add uvicorn to dev dependencies for testing REST API
+    "fastapi",  # Add fastapi to dev dependencies for testing REST API
 ]
 
 # ————————————————————————————

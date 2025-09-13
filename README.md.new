@@ -1,0 +1,25 @@
+## 🚀 Como usar (rápido)
+
+- Interativo (recomendado):
+  ```bash
+  uv run src/email_sender/cli.py
+  ```
+  - Use as setas ↑/↓ para navegar no menu
+  - Enter para selecionar uma opção
+  - TAB alterna `ENVIRONMENT` entre `test` e `production`
+  - ESC para sair
+
+- Modo avançado (via módulo):
+  ```bash
+  # Enviar emails
+  uv run -m email_sender.cli send-emails --mode=test --content config/email.yaml
+  uv run -m email_sender.cli send-emails --mode=production --content config/email.yaml
+
+  # Executar auto-teste
+  uv run -m email_sender.cli test
+  ```
+
+- Iniciar API REST:
+  ```bash
+  uv run -m email_sender.rest_api
+  ```

@@ -1231,7 +1231,7 @@ dependencies = [
     { name = "typer" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 default = [
     { name = "fastapi" },
     { name = "flask" },
@@ -1246,48 +1246,47 @@ default = [
 ]
 dev = [
     { name = "black" },
+    { name = "fastapi" },
     { name = "isort" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "babel", specifier = ">=2.15.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=24.3" },
+    { name = "fastapi", marker = "extra == 'default'" },
+    { name = "fastapi", marker = "extra == 'dev'" },
+    { name = "flask", marker = "extra == 'default'", specifier = ">=3.0" },
+    { name = "gunicorn", marker = "extra == 'default'", specifier = ">=22.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.13" },
     { name = "langchain", specifier = ">=0.2.10" },
     { name = "langchain-google-genai", specifier = ">=1.0.5" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "prompt-toolkit", specifier = ">=3.0.43" },
+    { name = "prompt-toolkit", marker = "extra == 'default'", specifier = ">=3.0.43" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pyfiglet", specifier = ">=0.8.post1" },
+    { name = "pyfiglet", marker = "extra == 'default'", specifier = ">=0.8.post1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "python-dotenv", marker = "extra == 'default'", specifier = ">=1.1.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "pyyaml", marker = "extra == 'default'", specifier = ">=6.0.2" },
     { name = "questionary", specifier = ">=2.0.1" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "rich", specifier = ">=13.0.0" },
+    { name = "rich", marker = "extra == 'default'", specifier = ">=13.0.0" },
     { name = "typer", specifier = ">=0.15.3" },
+    { name = "typer", marker = "extra == 'default'", specifier = ">=0.15.3" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'default'" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'dev'" },
 ]
-
-[package.metadata.requires-dev]
-default = [
-    { name = "fastapi" },
-    { name = "flask", specifier = ">=3.0" },
-    { name = "gunicorn", specifier = ">=22.0" },
-    { name = "prompt-toolkit", specifier = ">=3.0.43" },
-    { name = "pyfiglet", specifier = ">=0.8.post1" },
-    { name = "python-dotenv", specifier = ">=1.1.0" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "rich", specifier = ">=13.0.0" },
-    { name = "typer", specifier = ">=0.15.3" },
-    { name = "uvicorn", extras = ["standard"] },
-]
-dev = [
-    { name = "black", specifier = ">=24.3" },
-    { name = "isort", specifier = ">=5.13" },
-    { name = "mypy", specifier = ">=1.10" },
-    { name = "pytest", specifier = ">=8.2" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-]
+provides-extras = ["default", "dev"]
 
 [[package]]
 name = "typer"
