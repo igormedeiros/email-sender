@@ -365,7 +365,7 @@ def _ensure_or_create_default_config() -> Tuple[Path, Path]:
 
 
 def _update_event_from_sympla() -> None:
-    """Busca os 3 últimos eventos do Sympla, permite selecionar um e sincroniza YAML + Postgres.
+    """Busca os 3 últimos eventos do Sympla a partir do mês corrente, permite selecionar um e sincroniza YAML + Postgres.
 
     - Requer token da API do Sympla no header `S_token`
     - Token lido de `SYMPLA_TOKEN` no ambiente (.env) ou solicitado ao usuário
@@ -384,11 +384,30 @@ def _update_event_from_sympla() -> None:
         if not token:
             raise ValueError("Token do Sympla é obrigatório")
 
-    # 1) Buscar eventos mais recentes
+    # Obter data atual para filtrar eventos
+    from datetime import datetime
+    current_date = datetime.now()
+    current_year = current_date.year
+    current_month = current_date.month
+    
+    # Formatar a data no formato YYYY-MM-DD
+    from_date = f"{current_year}-{current_month:02d}-01"
+
+    # 1) Buscar eventos a partir do mês corrente
     headers = {"S_token": token}
-    base_url = os.environ.get("SYMPLA_BASE_URL", "https://api.sympla.com.br/public/v4").rstrip("/")
+    base_url = os.environ.get("SYMPLA_BASE_URL", "https://api.sympla.com.br/public/v1.5.1").rstrip("/")
     url = f"{base_url}/events"
-    params = {"sort_by": "start_date", "sort_order": "desc", "per_page": 3}
+    
+    # Parâmetros para buscar eventos:
+    # - sort: DESC para obter os mais recentes primeiro
+    # - limit: 100 para ter certeza que pegamos todos do mês
+    # - from: data a partir da qual queremos os eventos
+    params = {
+        "sort": "DESC",
+        "limit": 100,
+        "from": from_date
+    }
+    
     resp = requests.get(url, headers=headers, params=params, timeout=20)
     try:
         resp.raise_for_status()
@@ -397,12 +416,39 @@ def _update_event_from_sympla() -> None:
     payload = resp.json() or {}
     events = payload.get("data") or payload.get("events") or []
     if not isinstance(events, list) or not events:
-        raise RuntimeError("Nenhum evento retornado pela API do Sympla")
-    # Ordenar por data de início desc (mais recentes primeiro)
-    def _parse_date(ev: dict):
-        return (ev.get("start_date") or ev.get("startDate") or "")
-    events.sort(key=_parse_date, reverse=True)
-    events = events[:3]
+        typer.echo("Nenhum evento encontrado a partir do mês corrente.")
+        return
+    
+    # Filtrar eventos para garantir que são do mês corrente ou posteriores
+    # (a API pode retornar eventos ligeiramente antes da data solicitada)
+    filtered_events = []
+    for event in events:
+        start_date = event.get("start_date") or event.get("startDate") or ""
+        if start_date:
+            try:
+                # Parse da data no formato YYYY-MM-DD
+                event_date = datetime.strptime(start_date.split(" ")[0], "%Y-%m-%d")
+                # Verificar se o evento é do mês corrente ou posterior
+                if event_date.year > current_year or (event_date.year == current_year and event_date.month >= current_month):
+                    filtered_events.append(event)
+            except ValueError:
+                # Se não conseguir parsear a data, adiciona o evento (para não perder)
+                filtered_events.append(event)
+        else:
+            # Se não tiver data, adiciona o evento (para não perder)
+            filtered_events.append(event)
+    
+    # Ordenar eventos por data (do mais próximo para o mais distante)
+    filtered_events.sort(key=lambda x: x.get("start_date") or x.get("startDate") or "")
+    
+    # Pegar os 3 eventos mais recentes
+    filtered_events = filtered_events[:3]
+    
+    if not filtered_events:
+        typer.echo("Nenhum evento encontrado a partir do mês corrente.")
+        return
+        
+    events = filtered_events
 
     # 2) Escolha interativa (Rich)
     console = get_console()

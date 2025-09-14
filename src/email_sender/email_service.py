@@ -350,6 +350,27 @@ class EmailService:
                         event_id = int(found["id"]) if found["id"] is not None else None
             except Exception:
                 event_id = None
+            
+            # Validar se o evento ativo é do mês corrente ou futuro
+            if event_id is not None:
+                try:
+                    event_info = db.fetch_one("sql/events/select_event_by_id.sql", (event_id,))
+                    if event_info and event_info.get("event_start_date"):
+                        from datetime import datetime
+                        event_date = datetime.strptime(event_info["event_start_date"].split(" ")[0], "%Y-%m-%d")
+                        current_date = datetime.now()
+                        current_year = current_date.year
+                        current_month = current_date.month
+                        
+                        # Verificar se o evento é do mês corrente ou futuro
+                        if event_date.year < current_year or (event_date.year == current_year and event_date.month < current_month):
+                            console = get_console()
+                            console.print(f"[bold red]Erro: O evento selecionado ({event_info.get('event_name', 'N/A')}) é de um mês anterior ({event_date.strftime('%m/%Y')}).[/bold red]")
+                            console.print("[bold red]Por favor, selecione um evento atual ou futuro usando a opção 'Atualizar dados do evento Sympla'.[/bold red]")
+                            raise RuntimeError("Evento desatualizado - selecione um evento do mês corrente ou futuro")
+                except Exception as e:
+                    # Se houver erro na validação, continuamos mas registramos
+                    log.warning(f"Não foi possível validar a data do evento: {e}")
 
             created = db.fetch_one(
                 "sql/messages/create_message.sql",
@@ -693,6 +714,26 @@ class EmailService:
             
             # Conectar ao Postgres e buscar destinatários (fluxo simplificado)
             with Database(self.config) as db:
+                # Validar se o evento ativo é do mês corrente ou futuro
+                try:
+                    active_event = db.fetch_one("sql/events/select_active_event.sql")
+                    if active_event and active_event.get("event_start_date"):
+                        from datetime import datetime
+                        event_date = datetime.strptime(active_event["event_start_date"].split(" ")[0], "%Y-%m-%d")
+                        current_date = datetime.now()
+                        current_year = current_date.year
+                        current_month = current_date.month
+                        
+                        # Verificar se o evento é do mês corrente ou futuro
+                        if event_date.year < current_year or (event_date.year == current_year and event_date.month < current_month):
+                            console = get_console()
+                            console.print(f"[bold red]Erro: O evento selecionado ({active_event.get('event_name', 'N/A')}) é de um mês anterior ({event_date.strftime('%m/%Y')}).[/bold red]")
+                            console.print("[bold red]Por favor, selecione um evento atual ou futuro usando a opção 'Atualizar dados do evento Sympla'.[/bold red]")
+                            raise RuntimeError("Evento desatualizado - selecione um evento do mês corrente ou futuro")
+                except Exception as e:
+                    # Se houver erro na validação, continuamos mas registramos
+                    log.warning(f"Não foi possível validar a data do evento: {e}")
+
                 # Estado: último contact_id enviado com sucesso
                 STATE_KEY = "last_success_contact_id"
                 last_sent_row = db.fetch_one("sql/runtime/get_send_state.sql", (STATE_KEY,)) or {}
