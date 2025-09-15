@@ -356,9 +356,14 @@ class EmailService:
                 try:
                     event_info = db.fetch_one("sql/events/select_event_by_id.sql", (event_id,))
                     if event_info and event_info.get("event_start_date"):
-                        from datetime import datetime
-                        event_date = datetime.strptime(event_info["event_start_date"].split(" ")[0], "%Y-%m-%d")
-                        current_date = datetime.now()
+                        event_start_date = event_info["event_start_date"]
+                        # Verificar se event_start_date é uma string ou um objeto datetime
+                        if isinstance(event_start_date, datetime):
+                            event_date = event_start_date.date()
+                        else:
+                            event_date = datetime.strptime(event_start_date.split(" ")[0], "%Y-%m-%d").date()
+                        
+                        current_date = datetime.now().date()
                         current_year = current_date.year
                         current_month = current_date.month
                         
@@ -367,7 +372,7 @@ class EmailService:
                             console = get_console()
                             console.print(f"[bold red]Erro: O evento selecionado ({event_info.get('event_name', 'N/A')}) é de um mês anterior ({event_date.strftime('%m/%Y')}).[/bold red]")
                             console.print("[bold red]Por favor, selecione um evento atual ou futuro usando a opção 'Atualizar dados do evento Sympla'.[/bold red]")
-                            raise RuntimeError("Evento desatualizado - selecione um evento do mês corrente ou futuro")
+                            raise RuntimeError("Evento desatualizado - selecão um evento do mês corrente ou futuro")
                 except Exception as e:
                     # Se houver erro na validação, continuamos mas registramos
                     log.warning(f"Não foi possível validar a data do evento: {e}")
@@ -718,9 +723,14 @@ class EmailService:
                 try:
                     active_event = db.fetch_one("sql/events/select_active_event.sql")
                     if active_event and active_event.get("event_start_date"):
-                        from datetime import datetime
-                        event_date = datetime.strptime(active_event["event_start_date"].split(" ")[0], "%Y-%m-%d")
-                        current_date = datetime.now()
+                        event_start_date = active_event["event_start_date"]
+                        # Verificar se event_start_date é uma string ou um objeto datetime
+                        if isinstance(event_start_date, datetime):
+                            event_date = event_start_date.date()
+                        else:
+                            event_date = datetime.strptime(event_start_date.split(" ")[0], "%Y-%m-%d").date()
+                        
+                        current_date = datetime.now().date()
                         current_year = current_date.year
                         current_month = current_date.month
                         

@@ -16,5 +16,11 @@ WHERE tc.email IS NOT NULL AND tc.email <> ''
     JOIN tbl_tags t ON ctb.tag_id = t.id
     WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) IN ('bounce','bouncy')
   )
+  -- Prevent contacts who have already received any email from being selected again
+  AND NOT EXISTS (
+    SELECT 1
+    FROM tbl_message_logs tml
+    WHERE tml.contact_id = tc.id AND tml.event_type = 'sent'
+  )
   AND tc.id > $1
 ORDER BY tc.id ASC;

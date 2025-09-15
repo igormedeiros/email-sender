@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any
 from urllib.parse import urlunparse
+from datetime import date as _date
 
 log = logging.getLogger("email_sender")
 
@@ -152,7 +153,6 @@ class TemplateProcessor:
             if len(parts) == 1:
                 y, m, d = _parse_ymd(parts[0])
                 if all(v is not None for v in (y, m, d)):
-                    from datetime import date as _date
                     dt = _date(int(y), int(m), int(d))
                     m_name = _fmt_date(dt, format='MMMM', locale=locale_pref)
                     return f"{d} de {m_name}"
@@ -164,7 +164,6 @@ class TemplateProcessor:
                     return raw
                 if not all(v is not None for v in (y2, m2, d2)):
                     y2, m2, d2 = y1, m1, d1
-                from datetime import date as _date
                 dt1 = _date(int(y1), int(m1), int(d1))
                 dt2 = _date(int(y2), int(m2), int(d2))
                 m1_name = _fmt_date(dt1, format='MMMM', locale=locale_pref)

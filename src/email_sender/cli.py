@@ -33,7 +33,7 @@ from email_sender.utils.ui import (
 from email_sender.config import Config
 from email_sender.email_templating import TemplateProcessor
 from email_sender.logging_config import setup_logging
-from datetime import datetime
+from datetime import datetime, date as _date
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
@@ -571,7 +571,6 @@ def _update_event_from_sympla() -> None:
         if not all(v is not None for v in (y2, m2, d2)):
             y2, m2, d2 = y1, m1, d1
 
-        from datetime import date as _date
         dt1 = _date(int(y1), int(m1), int(d1))
         dt2 = _date(int(y2), int(m2), int(d2))
         m1_name = _fmt_date(dt1, format='MMMM', locale=_locale_pref)
