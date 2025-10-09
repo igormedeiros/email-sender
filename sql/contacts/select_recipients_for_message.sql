@@ -43,11 +43,15 @@ WHERE
             WHERE ctb_t.contact_id = tc.id AND LOWER(TRIM(t_t.tag_name)) = 'test'
         ))
     )
-    -- Prevent contacts who have already received any email from being selected again
-    AND NOT EXISTS (
-        SELECT 1
-        FROM tbl_message_logs AS tmsl
-        WHERE tmsl.contact_id = tc.id AND tmsl.event_type = 'sent'
+    -- Prevent contacts who have already received any email from being selected again (only in production)
+    AND (
+        $1 = TRUE -- If in test mode, do not check for previous sends
+        OR
+        NOT EXISTS (
+            SELECT 1
+            FROM tbl_message_logs AS tmsl
+            WHERE tmsl.contact_id = tc.id AND tmsl.event_type = 'sent'
+        )
     )
     AND NOT EXISTS (
         SELECT 1

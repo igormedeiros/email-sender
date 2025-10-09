@@ -88,7 +88,7 @@ def main(
                     config_file=str(config_file),
                     content_file=str(content_file),
                     skip_unsubscribed_sync=False,
-                    mode=None,
+                    mode=selected_env,
                 )
             except Exception as e:
                 msg = str(e)
@@ -130,6 +130,17 @@ def main(
                 _update_event_from_sympla()
             except Exception as e:
                 typer.echo(f"\n❌ Falha ao atualizar evento: {e}")
+            continue
+        elif choice == "Importar contatos (contacts.csv)":
+            from email_sender.controller_cli import import_contacts_from_csv
+            config_file, content_file = _ensure_or_create_default_config()
+            try:
+                import_contacts_from_csv(
+                    config_file=str(config_file),
+                    content_file=str(content_file),
+                )
+            except Exception as e:
+                ui_error(f"Falha ao importar contatos: {e}")
             continue
         elif choice == "Limpar base de emails (legado/local)":
             typer.echo("Limpeza de base (legado) não disponível em Postgres-first. Use rotinas SQL dedicadas.")
@@ -182,6 +193,7 @@ def _run_interactive_menu(initial_env: str) -> Tuple[str, str]:
         "Auto-teste (diagnóstico geral)",
         "Gerar massa de teste (contatos: válido/unsub/bounce)",
         "Atualizar dados do evento Sympla",
+        "Importar contatos (contacts.csv)",
         "Limpar base de emails (legado/local)",
         "Sair",
     ]

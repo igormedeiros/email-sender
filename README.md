@@ -389,6 +389,26 @@ Parâmetros opcionais:
 
 Este comando limpa as colunas `enviado` e `falhou` do banco de dados, permitindo que emails já enviados ou que falharam anteriormente sejam processados novamente no próximo envio.
 
+#### Importar Contatos de CSV
+
+Para importar uma lista de contatos em massa, siga os passos:
+
+1.  Crie um arquivo chamado `contacts.csv` na raiz do projeto.
+2.  O arquivo deve conter uma única coluna com o cabeçalho `email`.
+
+**Exemplo de `contacts.csv`:**
+
+```csv
+email
+fulano@example.com
+beltrano@example.com
+ciclano@example.com
+```
+
+3.  Execute a aplicação no modo interativo e selecione a opção **"Importar contatos (contacts.csv)"** no menu.
+
+O sistema irá ler o arquivo, ignorar duplicatas e inserir os novos contatos no banco de dados, deixando-os prontos para receber campanhas.
+
 #### Remover Duplicados
 
 Remove linhas duplicadas da base de dados PostgreSQL baseado em uma coluna específica (por padrão, a coluna 'email'):

@@ -308,204 +308,9 @@ class EmailService:
                 pass
             return generated_subject
 
-    def send_email_to_test_recipient(self, template: str, limit: int = 1) -> Dict[str, Any]:
-        """Envio simplificado para AMBIENTE de teste: pega até N destinatários de teste via SQL e envia.
+    
 
-        Usa as queries em sql/ para criar campanha, selecionar destinatário (modo teste) e registrar log 'sent'.
-        """
-        from rich.console import Console
-        console = Console()
-
-        email_subject = self._resolve_subject()
-        # Resolver template path
-        if not template.endswith('.html'):
-            template += '.html'
-        template_path_obj = Path(template)
-        if not template_path_obj.exists():
-            root_template_path = Path("templates") / template_path_obj.name
-            if root_template_path.exists():
-                template_path_obj = root_template_path
-            else:
-                raise FileNotFoundError(f"Template file not found: {template}")
-
-        start_time = time.time()
-        successful = 0
-        failed = 0
-        total_send_attempts = 0
-
-        with Database(self.config) as db:
-            # Dados do evento devem vir do YAML (config/email.yaml -> seção 'evento')
-            evento_cfg = (self.config.email_content or {}).get("evento", {})
-            state = str(evento_cfg.get("uf") or evento_cfg.get("state") or "")
-            now = datetime.now()
-            month = f"{now.month:02d}"
-            year = f"{now.year}"
-            # sympla_id pode ser alfanumérico; buscar id interno no Postgres
-            sympla_code = (evento_cfg.get("sympla_id") or "").strip()
-            event_id = None
-            try:
-                if sympla_code:
-                    found = db.fetch_one("sql/events/select_event_internal_id_by_sympla_id.sql", (sympla_code,))
-                    if found and "id" in found:
-                        event_id = int(found["id"]) if found["id"] is not None else None
-            except Exception:
-                event_id = None
-            
-            # Validar se o evento ativo é do mês corrente ou futuro
-            if event_id is not None:
-                try:
-                    event_info = db.fetch_one("sql/events/select_event_by_id.sql", (event_id,))
-                    if event_info and event_info.get("event_start_date"):
-                        event_start_date = event_info["event_start_date"]
-                        # Verificar se event_start_date é uma string ou um objeto datetime
-                        if isinstance(event_start_date, datetime):
-                            event_date = event_start_date.date()
-                        else:
-                            event_date = datetime.strptime(event_start_date.split(" ")[0], "%Y-%m-%d").date()
-                        
-                        current_date = datetime.now().date()
-                        current_year = current_date.year
-                        current_month = current_date.month
-                        
-                        # Verificar se o evento é do mês corrente ou futuro
-                        if event_date.year < current_year or (event_date.year == current_year and event_date.month < current_month):
-                            console = get_console()
-                            console.print(f"[bold red]Erro: O evento selecionado ({event_info.get('event_name', 'N/A')}) é de um mês anterior ({event_date.strftime('%m/%Y')}).[/bold red]")
-                            console.print("[bold red]Por favor, selecione um evento atual ou futuro usando a opção 'Atualizar dados do evento Sympla'.[/bold red]")
-                            raise RuntimeError("Evento desatualizado - selecão um evento do mês corrente ou futuro")
-                except Exception as e:
-                    # Se houver erro na validação, continuamos mas registramos
-                    log.warning(f"Não foi possível validar a data do evento: {e}")
-
-            created = db.fetch_one(
-                "sql/messages/create_message.sql",
-                (email_subject, state, month, year, event_id),
-            )
-            if not created or "id" not in created:
-                raise RuntimeError("Falha ao criar campanha em tbl_messages")
-            message_id = created["id"]
-
-            recipients = db.fetch_all(
-                "sql/contacts/select_recipients_for_message.sql",
-                (True, message_id),  # True => modo teste
-            )
-            if not recipients:
-                # marca como processada e encerra
-                db.execute("sql/messages/mark_message_processed.sql", (message_id,))
-                return {"status": "no_emails", "total_records": 0, "message_id": message_id}
-            # Enviar para até "limit" destinatários de teste
-            total_send_attempts = 0
-            first_recipient_email: str | None = None
-            notified_start = False
-            final_subject_for_test: Optional[str] = None
-            for recipient in recipients[: max(1, int(limit))]:
-                recipient_email = str(recipient.get("email", "")).strip()
-                if not recipient_email:
-                    continue
-                if first_recipient_email is None:
-                    first_recipient_email = recipient_email
-                total_send_attempts += 1
-                try:
-                    console.print(f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan]")
-                    # Enriquecer recipient com IDs necessários para tracking
-                    try:
-                        if isinstance(recipient, dict):
-                            # contact_id sai de recipients SQL como 'id'
-                            if recipient.get("id") is not None:
-                                recipient["contact_id"] = recipient.get("id")
-                            # message_id foi criado acima
-                            recipient["message_id"] = message_id
-                    except Exception:
-                        pass
-                    html_content = self.process_email_template(str(template_path_obj), recipient, email_subject)
-                    # Gerar assunto UMA VEZ no modo teste (com base no primeiro email)
-                    if final_subject_for_test is None:
-                        console.print("[cyan]Gerando assunto do teste com base no primeiro email...[/cyan]")
-                        try:
-                            generated = self._generate_subject_for_body(html_content, existing_subject=email_subject)
-                        except Exception:
-                            generated = email_subject
-                        console.print(f"[bold cyan]Assunto gerado (teste):[/bold cyan] [white]{generated}[/white]")
-                        final_subject_for_test = self._maybe_interactive_subject(
-                            generated,
-                            html_content,
-                            force=True,
-                            show_current_first=False,
-                        )
-                    subj = final_subject_for_test or email_subject
-                    # Notificar início somente após assunto estar definido/aprovado (uma vez)
-                    if not notified_start:
-                        try:
-                            evt = self._build_event_brief()
-                            msg = "🚀 Iniciando envio de email (modo teste)"
-                            msg = f"{msg}\n{evt}" if evt else msg
-                            notify_telegram(msg)
-                        except Exception:
-                            pass
-                        notified_start = True
-                    self.smtp_manager.send_email(
-                        to_email=recipient_email,
-                        subject=subj,
-                        content=html_content,
-                        is_html=True,
-                    )
-                    console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]")
-                    successful += 1
-                    # log 'sent'
-                    db.execute(
-                        "sql/messages/insert_message_sent_log.sql",
-                        (recipient.get("id"), message_id, 'OK', ''),
-                    )
-                except Exception as e:
-                    console.print(f"[red]❌ Falha ao enviar para {recipient_email}: {str(e)}[/red]")
-                    failed += 1
-                    try:
-                        db.execute(
-                            "sql/messages/insert_message_sent_log.sql",
-                            (recipient.get("id"), message_id, 'ERROR', str(e)[:200]),
-                        )
-                    except Exception:
-                        pass
-            # fechar campanha
-            try:
-                db.execute("sql/messages/mark_message_processed.sql", (message_id,))
-            except Exception:
-                pass
-
-        end_time = time.time()
-        report = self.generate_report(start_time, end_time, total_send_attempts, successful, failed)
-        if first_recipient_email:
-            report["test_recipient"] = first_recipient_email
-        try:
-            notify_telegram(f"✅ Envio de teste concluído. Enviado: {successful}, Falhas: {failed}")
-        except Exception:
-            pass
-        return report
-
-    # Legacy CSV-related methods removed as part of code cleanup.
-
-    def send_batch(self, recipients: List[Dict], content: str, subject: str, is_html: bool = False) -> None:
-        if not recipients:
-            log.warning("send_batch called with no recipients.")
-            return
-
-        recipient_email = recipients[0].get("email")
-        if not recipient_email:
-            log.error("Recipient email missing in send_batch call.")
-            raise ValueError("Recipient email missing in send_batch call")
-
-        try:
-            log.debug(f"Using SmtpManager to send email to {recipient_email} with subject \"{subject}\"")
-            self.smtp_manager.send_email(
-                to_email=recipient_email,
-                subject=subject,
-                content=content,
-                is_html=is_html
-            )
-            log.debug(f"Email to {recipient_email} passed to SmtpManager.")
-        except Exception as e:
-            log.error(f"SmtpManager failed to send email to {recipient_email}: {str(e)}")
-            raise
+    
 
     def process_email_template(self, template_path: str, recipient: Dict, email_subject: str) -> str:
         """
@@ -659,7 +464,7 @@ class EmailService:
 
     # Legacy helpers removed: remove_duplicates, create_backup, send_test_email.
 
-    def process_email_sending(self, template: str = "", skip_unsubscribed_sync: bool = True, is_test_mode: bool = True) -> Dict[str, Any]:
+    def process_email_sending(self, template: str = "", limit: int = 0, is_test_mode: bool = False) -> Dict[str, Any]:
         """Processa envio em lote usando Postgres via SQL (fluxo simplificado)."""
         try:
             # Configurar console e formatação Rich
@@ -680,6 +485,8 @@ class EmailService:
             total_send_attempts = 0
             unsub_ignored = 0
             bounce_ignored = 0
+            
+            STATE_KEY = "last_sent_contact_id"
             
             pause_duration_after_attempts = self.config.email_config.get("batch_delay", 60)
             retry_attempts_config = self.config.email_config.get("retry_attempts", 3)
@@ -716,330 +523,272 @@ class EmailService:
             else:
                 template_path_obj = template_path_obj.resolve()
                 console.print(f"Template encontrado em: [green]{template_path_obj}[/green]")
-            
-            # Conectar ao Postgres e buscar destinatários (fluxo simplificado)
+
             with Database(self.config) as db:
-                # Validar se o evento ativo é do mês corrente ou futuro
+                # Criar a mensagem primeiro para obter um message_id
                 try:
-                    active_event = db.fetch_one("sql/events/select_active_event.sql")
-                    if active_event and active_event.get("event_start_date"):
-                        event_start_date = active_event["event_start_date"]
-                        # Verificar se event_start_date é uma string ou um objeto datetime
-                        if isinstance(event_start_date, datetime):
-                            event_date = event_start_date.date()
-                        else:
-                            event_date = datetime.strptime(event_start_date.split(" ")[0], "%Y-%m-%d").date()
-                        
-                        current_date = datetime.now().date()
-                        current_year = current_date.year
-                        current_month = current_date.month
-                        
-                        # Verificar se o evento é do mês corrente ou futuro
-                        if event_date.year < current_year or (event_date.year == current_year and event_date.month < current_month):
-                            console = get_console()
-                            console.print(f"[bold red]Erro: O evento selecionado ({active_event.get('event_name', 'N/A')}) é de um mês anterior ({event_date.strftime('%m/%Y')}).[/bold red]")
-                            console.print("[bold red]Por favor, selecione um evento atual ou futuro usando a opção 'Atualizar dados do evento Sympla'.[/bold red]")
-                            raise RuntimeError("Evento desatualizado - selecione um evento do mês corrente ou futuro")
+                    evento_cfg = (self.config.content_config or {}).get("evento", {})
+                    now = datetime.now()
+                    state = evento_cfg.get("uf", "")
+                    month = f"{now.month:02d}"
+                    year = str(now.year)
+                    event_sympla_id = evento_cfg.get("sympla_id")
+
+                    # Verificar se o evento existe no banco de dados
+                    if not event_sympla_id:
+                        raise ValueError("ID do evento (sympla_id) não encontrado no arquivo de configuração.")
+
+                    event_row = db.fetch_one(
+                        "sql/events/select_event_internal_id_by_sympla_id.sql", (event_sympla_id,)
+                    )
+                    if not event_row or not event_row.get("id"):
+                        raise ValueError(
+                            f"Evento com sympla_id='{event_sympla_id}' não encontrado no banco de dados. "
+                            "Execute a opção 'Atualizar dados do evento Sympla' no menu principal."
+                        )
+                    
+                    internal_event_id = event_row["id"]
+
+                    message_row = db.fetch_one(
+                        "sql/messages/create_message.sql",
+                        (base_subject, state, month, year, internal_event_id),
+                    )
+                    message_id = message_row["id"]
+                    console.print(f"Mensagem criada com ID: [cyan]{message_id}[/cyan]")
                 except Exception as e:
-                    # Se houver erro na validação, continuamos mas registramos
-                    log.warning(f"Não foi possível validar a data do evento: {e}")
+                    console.print(f"[bold red]Erro ao criar a mensagem no banco de dados: {e}[/bold red]")
+                    raise
 
-                # Estado: último contact_id enviado com sucesso
-                STATE_KEY = "last_success_contact_id"
-                last_sent_row = db.fetch_one("sql/runtime/get_send_state.sql", (STATE_KEY,)) or {}
-                try:
-                    last_id = int(str((last_sent_row.get("state_value") or "0").strip()))
-                except Exception:
-                    last_id = 0
+                recipients = db.fetch_all("sql/contacts/select_recipients_for_message.sql", (is_test_mode, message_id))
 
-                # Contagens auxiliares: descadastrados e bounces (ignorados nesta execução)
-                try:
-                    unsub_row = db.fetch_one("sql/contacts/count_unsubscribed_since_id.sql", (last_id,)) or {"cnt": 0}
-                    unsub_ignored = int(unsub_row.get("cnt") or 0)
-                except Exception:
-                    unsub_ignored = 0
-                try:
-                    bounce_row = db.fetch_one("sql/contacts/count_bounces_since_id.sql", (last_id,)) or {"cnt": 0}
-                    bounce_ignored = int(bounce_row.get("cnt") or 0)
-                except Exception:
-                    bounce_ignored = 0
+                if not recipients:
+                    console.print("[bold yellow]Atenção: Nenhum destinatário elegível encontrado no Postgres[/bold yellow]")
+                    return {"status": "no_emails", "total_records": 0}
 
-                recipients = db.fetch_all(
-                    "sql/contacts/select_contacts_simple.sql",
-                    (last_id,),
-                )
-
-            total_records = len(recipients)
-            if total_records == 0:
-                console.print("[bold yellow]Atenção: Nenhum destinatário elegível encontrado no Postgres[/bold yellow]")
-                return {"status": "no_emails", "total_records": 0}
-            
-            console.print(f"\n[bold]Total de registros para processar: [cyan]{total_records}[/cyan][/bold]")
-            
-            # Configurar tabela para exibir informações de envio em tempo real
-            email_table = Table(title="Informações de Envio de Emails", box=ROUNDED, show_header=True)
-            email_table.add_column("Email", style="cyan")
-            email_table.add_column("Status", style="bold")
-            email_table.add_column("Tentativas", style="yellow")
-            email_table.add_column("Detalhes", style="dim")
-            
-            # Lista para armazenar resultados de envio para exibir depois
-            email_results = []
-
-            try:
-                class TimeoutException(Exception):
-                    pass
+                if is_test_mode and limit > 0:
+                    recipients = recipients[:limit]
                 
-                def timeout_handler(signum, frame):
-                    raise TimeoutException
+                total_records = len(recipients)
+                console.print(f"\n[bold]Total de registros para processar: [cyan]{total_records}[/cyan][/bold]")
                 
-                signal.signal(signal.SIGALRM, timeout_handler)
-                configured_batch_size = self.config.email_config.get("batch_size", 200)
-                if configured_batch_size <= 0:
-                    configured_batch_size = 200
-                total_batches = math.ceil(total_records / configured_batch_size) if total_records > 0 else 0
+                # Configurar tabela para exibir informações de envio em tempo real
+                email_table = Table(title="Informações de Envio de Emails", box=ROUNDED, show_header=True)
+                email_table.add_column("Email", style="cyan")
+                email_table.add_column("Status", style="bold")
+                email_table.add_column("Tentativas", style="yellow")
+                email_table.add_column("Detalhes", style="dim")
                 
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                    TimeRemainingColumn(),
-                    console=console
-                ) as progress:
-                    progress_task = progress.add_task("[green]Processando emails...", total=total_records)
+                # Lista para armazenar resultados de envio para exibir depois
+                email_results = []
+
+                try:
+                    class TimeoutException(Exception):
+                        pass
                     
-                    processed_in_batch_count = 0 # Counter for actual emails processed in the current batch period
+                    def timeout_handler(signum, frame):
+                        raise TimeoutException
                     
-                    def _iter_batches(items: List[Dict[str, Any]], size: int):
-                        for i in range(0, len(items), size):
-                            yield items[i:i+size]
-
-                    notified_start = False  # only notify start after subject approval/definition
-                    for batch_idx, batch_recipients in enumerate(_iter_batches(recipients, configured_batch_size)):
-                        if not batch_recipients:
-                            continue
-
-                        batch_panel = Text(f"Lote {batch_idx + 1}/{int(total_batches)} - Processando {len(batch_recipients)} destinatários", style="bold blue")
-                        progress.console.print(batch_panel)
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    configured_batch_size = self.config.email_config.get("batch_size", 200)
+                    if configured_batch_size <= 0:
+                        configured_batch_size = 200
+                    total_batches = math.ceil(total_records / configured_batch_size) if total_records > 0 else 0
+                    
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        BarColumn(),
+                        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                        TimeRemainingColumn(),
+                        console=console
+                    ) as progress:
+                        progress_task = progress.add_task("[green]Processando emails...", total=total_records)
                         
-                        current_batch_processed_count = 0 # Emails processed in this specific non-empty batch
+                        processed_in_batch_count = 0 # Counter for actual emails processed in the current batch period
+                        
+                        def _iter_batches(items: List[Dict[str, Any]], size: int):
+                            for i in range(0, len(items), size):
+                                yield items[i:i+size]
 
-                        for recipient in batch_recipients:
-                            progress.update(progress_task, advance=1)
-                            recipient_email = str(recipient.get('email', '')).strip()
-                            
-                            if not recipient_email:
-                                email_results.append({
-                                    'email': 'Missing email',
-                                    'status': '[red]Erro[/red]',
-                                    'tentativas': '0',
-                                    'detalhes': 'Email ausente'
-                                })
-                                failed += 1
+                        notified_start = False  # only notify start after subject approval/definition
+                        for batch_idx, batch_recipients in enumerate(_iter_batches(recipients, configured_batch_size)):
+                            if not batch_recipients:
                                 continue
-                            
-                            total_send_attempts += 1
-                            
-                            attempts = 0
-                            max_retry_minutes = 5  # Tempo máximo de tentativas em minutos
-                            start_retry_time = time.time()
-                            max_retry_time = start_retry_time + (max_retry_minutes * 60)
-                            # Lista de padrões que indicam problemas de conexão ou rede
-                            connection_errors = [
-                                "connection refused", "network is unreachable", "timed out", 
-                                "name or service not known", "temporary failure", "no route to host",
-                                "connection reset", "connection error", "network error", "socket error",
-                                "dns unavailable", "timeout", "service unavailable", "try again later", 
-                                "server busy", "connection lost", "temporarily rejected", "network down",
-                                "eof", "broken pipe", "refused", "host unreachable", "operation timed out", 
-                                "operation would block", "no address associated", "network dropped",
-                                "bad connection", "no response", "port unreachable", "cannot connect", 
-                                "temporary error", "network failure", "proxy error", "ssl error", 
-                                "name resolution", "circuit", "disconnected", "internet access", 
-                                "resource unavailable", "gateway", "routing"
-                            ]
-                            
-                            # Define uma função para verificar se uma string contém algum padrão de erro de conexão
-                            def is_connection_error(error_text):
-                                error_text = error_text.lower()
-                                return any(err_pattern in error_text for err_pattern in connection_errors)
-                            
-                            while True:
-                                # Verificar se atingiu o número máximo de tentativas OU o tempo máximo de tentativas
-                                if attempts >= retry_attempts_config and time.time() >= max_retry_time:
-                                    progress.console.print(f"[red]❌ Número máximo de tentativas e tempo esgotados para {recipient_email}[/red]")
-                                    failed += 1
-                                    
-                                    email_results.append({
-                                        'email': recipient_email,
-                                        'status': '[red]Falha[/red]',
-                                        'tentativas': f"{attempts} (tempo esgotado)",
-                                        'detalhes': 'Tempo máximo de tentativas esgotado (5 minutos)'
-                                    })
-                                    break
-                                
-                                try:
-                                    attempts += 1
-                                    tempo_decorrido = time.time() - start_retry_time
-                                    tempo_restante = max(0, max_retry_time - time.time())
-                                    
-                                    progress.console.print(
-                                        f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan] "
-                                        f"(Tentativa {attempts}/{retry_attempts_config}, "
-                                        f"Tempo restante: {tempo_restante:.1f}s)"
-                                    )
-                                    signal.alarm(send_timeout)
-                                    
-                                    # Verificar elegibilidade do contato (defesa extra)
-                                    try:
-                                        with Database(self.config) as db_chk:
-                                            ok_row = db_chk.fetch_one("sql/contacts/check_contact_eligible.sql", (recipient.get('id'),)) or {"ok": True}
-                                            if not bool(ok_row.get("ok", True)):
-                                                email_results.append({
-                                                    'email': recipient_email,
-                                                    'status': '[yellow]Ignorado[/yellow]',
-                                                    'tentativas': '0',
-                                                    'detalhes': 'Contato marcado como unsubscribed/bounce'
-                                                })
-                                                break
-                                    except Exception:
-                                        pass
 
-                                    html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
-                                    log.debug(f"HTML gerado para {recipient_email} (tamanho: {len(html_content)})")
-                                    if not html_content:
-                                        log.error(f"HTML vazio gerado para {recipient_email}")
-                                        progress.console.print(f"[red]❌ HTML vazio gerado para {recipient_email}[/red]")
-                                        failed += 1
-                                        email_results.append({
-                                            'email': recipient_email,
-                                            'status': '[red]Falha[/red]',
-                                            'tentativas': '0',
-                                            'detalhes': 'HTML vazio'
-                                        })
-                                        continue
-                                    
-                                    # Gerar assunto UMA ÚNICA VEZ para todo o lote, com base no primeiro corpo
-                                    if final_subject_for_batch is None:
-                                        console.print("[cyan]Gerando assunto do lote com base no conteúdo do primeiro email...[/cyan]")
-                                        try:
-                                            generated = self._generate_subject_for_body(html_content, existing_subject=base_subject)
-                                        except Exception:
-                                            generated = base_subject
-                                        console.print(f"[bold cyan]Assunto gerado (lote):[/bold cyan] [white]{generated}[/white]")
-                                        final_subject_for_batch = self._maybe_interactive_subject(
-                                            generated,
-                                            html_content,
-                                            show_current_first=False,
-                                        )
-                                    email_subject = final_subject_for_batch or base_subject
-                                    # Notificar início do envio em lote após definição/aprovação do assunto (apenas uma vez)
-                                    if not notified_start:
-                                        try:
-                                            evt = self._build_event_brief()
-                                            msg = "🚀 Iniciando processo de envio em lote"
-                                            msg = f"{msg}\n{evt}" if evt else msg
-                                            notify_telegram(msg)
-                                        except Exception:
-                                            pass
-                                        notified_start = True
-                                    
-                                    log.debug(f"Enviando email para {recipient_email} - Subject: {email_subject}")
-                                    log.debug(f"Tamanho do HTML antes do envio: {len(html_content)}")
-                                    if len(html_content.strip()) == 0:
-                                        raise ValueError("HTML vazio antes do envio")
-                                        
-                                    self.smtp_manager.send_email(
-                                        to_email=recipient_email,
-                                        subject=email_subject,
-                                        content=html_content,
-                                        is_html=True
-                                    )
-                                    
-                                    signal.alarm(0)
-                                    progress.console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]")
-                                    successful += 1
-                                    
+                            batch_panel = Text(f"Lote {batch_idx + 1}/{int(total_batches)} - Processando {len(batch_recipients)} destinatários", style="bold blue")
+                            progress.console.print(batch_panel)
+                            
+                            current_batch_processed_count = 0 # Emails processed in this specific non-empty batch
+
+                            for recipient in batch_recipients:
+                                progress.update(progress_task, advance=1)
+                                recipient_email = str(recipient.get('email', '')).strip()
+                                
+                                if not recipient_email:
                                     email_results.append({
-                                        'email': recipient_email,
-                                        'status': '[green]Enviado[/green]',
-                                        'tentativas': str(attempts),
-                                        'detalhes': 'Enviado com sucesso'
+                                        'email': 'Missing email',
+                                        'status': '[red]Erro[/red]',
+                                        'tentativas': '0',
+                                        'detalhes': 'Email ausente'
                                     })
-                                    # Atualizar estado do último enviado com sucesso
-                                    try:
-                                        # Criar uma nova conexão para atualizar o estado
-                                        # Isso evita problemas com a conexão principal já fechada
-                                        with Database(self.config) as state_db:
-                                            state_db.execute(
-                                                "sql/runtime/upsert_send_state.sql",
-                                                (STATE_KEY, str(recipient.get('id'))),
-                                            )
-                                    except Exception as st_exc:
-                                        log.warning(f"Falha ao atualizar estado de envio: {st_exc}")
-                                    break
-                                    
-                                except TimeoutException:
-                                    signal.alarm(0)
-                                    # Timeout é um problema de conexão, então ele tentará novamente se ainda estiver dentro do limite de tempo
-                                    # Reduzir o número máximo de tentativas para 2 e o tempo de espera
-                                    if attempts < 2 and time.time() < max_retry_time:
-                                        wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
-                                        progress.console.print(f"[yellow]⚠️ Timeout ao enviar para {recipient_email}. Tentando novamente em {wait_time}s...[/yellow]")
-                                        time.sleep(wait_time)
-                                        continue
-                                    else:
-                                        progress.console.print(f"[red]❌ Timeout ao enviar para {recipient_email} - tempo máximo excedido[/red]")
+                                    failed += 1
+                                    continue
+                                
+                                total_send_attempts += 1
+                                
+                                attempts = 0
+                                max_retry_minutes = 5  # Tempo máximo de tentativas em minutos
+                                start_retry_time = time.time()
+                                max_retry_time = start_retry_time + (max_retry_minutes * 60)
+                                # Lista de padrões que indicam problemas de conexão ou rede
+                                connection_errors = [
+                                    "connection refused", "network is unreachable", "timed out", 
+                                    "name or service not known", "temporary failure", "no route to host",
+                                    "connection reset", "connection error", "network error", "socket error",
+                                    "dns unavailable", "timeout", "service unavailable", "try again later", 
+                                    "server busy", "connection lost", "temporarily rejected", "network down",
+                                    "eof", "broken pipe", "refused", "host unreachable", "operation timed out", 
+                                    "operation would block", "no address associated", "network dropped",
+                                    "bad connection", "no response", "port unreachable", "cannot connect", 
+                                    "temporary error", "network failure", "proxy error", "ssl error", 
+                                    "name resolution", "circuit", "disconnected", "internet access", 
+                                    "resource unavailable", "gateway", "routing"
+                                ]
+                                
+                                # Define uma função para verificar se uma string contém algum padrão de erro de conexão
+                                def is_connection_error(error_text):
+                                    error_text = error_text.lower()
+                                    return any(err_pattern in error_text for err_pattern in connection_errors)
+                                
+                                while True:
+                                    # Verificar se atingiu o número máximo de tentativas OU o tempo máximo de tentativas
+                                    if attempts >= retry_attempts_config and time.time() >= max_retry_time:
+                                        progress.console.print(f"[red]❌ Número máximo de tentativas e tempo esgotados para {recipient_email}[/red]")
                                         failed += 1
-                                        
-                                        # Marcar o contato com uma tag de problema
-                                        try:
-                                            with Database(self.config) as tag_db:
-                                                tag_db.execute(
-                                                    "sql/tags/assign_tag_problem_by_email.sql",
-                                                    (recipient_email,),
-                                                )
-                                        except Exception as tag_exc:
-                                            log.warning(f"Falha ao marcar contato com tag de problema: {tag_exc}")
                                         
                                         email_results.append({
                                             'email': recipient_email,
                                             'status': '[red]Falha[/red]',
-                                            'tentativas': str(attempts),
-                                            'detalhes': f'Timeout após {send_timeout}s (tempo máximo excedido)'
+                                            'tentativas': f"{attempts} (tempo esgotado)",
+                                            'detalhes': 'Tempo máximo de tentativas esgotado (5 minutos)'
                                         })
                                         break
                                     
-                                except Exception as e:
-                                    signal.alarm(0)
-                                    error_str = str(e).lower()
-                                    error_is_connection_related = is_connection_error(error_str)
-                                    
-                                    # Se for erro de conexão e ainda estiver dentro do limite de tempo, tenta novamente
-                                    # Reduzir o número máximo de tentativas para 2
-                                    if error_is_connection_related and attempts < 2 and time.time() < max_retry_time:
-                                        wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
-                                        tempo_restante = max(0, (max_retry_time - time.time()) / 60)
+                                    try:
+                                        attempts += 1
+                                        tempo_decorrido = time.time() - start_retry_time
+                                        tempo_restante = max(0, max_retry_time - time.time())
                                         
                                         progress.console.print(
-                                            f"[yellow]⚠️ Erro de conexão ao enviar para {recipient_email} "
-                                            f"(Tentativa {attempts}): {str(e)}[/yellow]"
+                                            f"Tentando enviar para: [bold cyan]{recipient_email}[/bold cyan] "
+                                            f"(Tentativa {attempts}/{retry_attempts_config}, "
+                                            f"Tempo restante: {tempo_restante:.1f}s)"
                                         )
-                                        progress.console.print(f"[blue]🔄 Aguardando {wait_time}s antes de tentar novamente... "
-                                                              f"(Tempo restante: {tempo_restante:.1f} min)[/blue]")
-                                        time.sleep(wait_time)
-                                        continue
-                                    # Se atingiu o número de tentativas OU não é erro de conexão OU tempo esgotado
-                                    elif attempts >= 2 or not error_is_connection_related or time.time() >= max_retry_time:
-                                        if error_is_connection_related:
-                                            reason = "tempo máximo excedido" if time.time() >= max_retry_time else f"após {attempts} tentativas"
-                                            progress.console.print(f"[red]❌ Falha de conexão ao enviar para {recipient_email} - {reason}: {str(e)}[/red]")
-                                        else:
-                                            progress.console.print(f"[red]❌ Falha ao enviar para {recipient_email}: {str(e)}[/red]")
+                                        signal.alarm(send_timeout)
                                         
-                                        # Marcar o contato com uma tag de problema para erros de conexão
-                                        if error_is_connection_related:
+                                        # Verificar elegibilidade do contato (defesa extra)
+                                        try:
+                                            with Database(self.config) as db_chk:
+                                                ok_row = db_chk.fetch_one("sql/contacts/check_contact_eligible.sql", (recipient.get('id'),)) or {"ok": True}
+                                                if not bool(ok_row.get("ok", True)):
+                                                    email_results.append({
+                                                        'email': recipient_email,
+                                                        'status': '[yellow]Ignorado[/yellow]',
+                                                        'tentativas': '0',
+                                                        'detalhes': 'Contato marcado como unsubscribed/bounce'
+                                                    })
+                                                    break
+                                        except Exception:
+                                            pass
+
+                                        html_content = self.process_email_template(str(template_path_obj), recipient, base_subject)
+                                        log.debug(f"HTML gerado para {recipient_email} (tamanho: {len(html_content)})")
+                                        if not html_content:
+                                            log.error(f"HTML vazio gerado para {recipient_email}")
+                                            progress.console.print(f"[red]❌ HTML vazio gerado para {recipient_email}[/red]")
+                                            failed += 1
+                                            email_results.append({
+                                                'email': recipient_email,
+                                                'status': '[red]Falha[/red]',
+                                                'tentativas': '0',
+                                                'detalhes': 'HTML vazio'
+                                            })
+                                            continue
+                                        
+                                        # Gerar assunto UMA ÚNICA VEZ para todo o lote, com base no primeiro corpo
+                                        if final_subject_for_batch is None:
+                                            console.print("[cyan]Gerando assunto do lote com base no conteúdo do primeiro email...[/cyan]")
+                                            try:
+                                                generated = self._generate_subject_for_body(html_content, existing_subject=base_subject)
+                                            except Exception:
+                                                generated = base_subject
+                                            console.print(f"[bold cyan]Assunto gerado (lote):[/bold cyan] [white]{generated}[/white]")
+                                            final_subject_for_batch = self._maybe_interactive_subject(
+                                                generated,
+                                                html_content,
+                                                show_current_first=False,
+                                            )
+                                        email_subject = final_subject_for_batch or base_subject
+                                        # Notificar início do envio em lote após definição/aprovação do assunto (apenas uma vez)
+                                        if not notified_start:
+                                            try:
+                                                evt = self._build_event_brief()
+                                                msg = "🚀 Iniciando processo de envio em lote"
+                                                msg = f"{msg}\n{evt}" if evt else msg
+                                                notify_telegram(msg)
+                                            except Exception:
+                                                pass
+                                            notified_start = True
+                                        
+                                        log.debug(f"Enviando email para {recipient_email} - Subject: {email_subject}")
+                                        log.debug(f"Tamanho do HTML antes do envio: {len(html_content)}")
+                                        if len(html_content.strip()) == 0:
+                                            raise ValueError("HTML vazio antes do envio")
+                                            
+                                        self.smtp_manager.send_email(
+                                            to_email=recipient_email,
+                                            subject=email_subject,
+                                            content=html_content,
+                                            is_html=True
+                                        )
+                                        
+                                        signal.alarm(0)
+                                        progress.console.print(f"[green]✅ Email enviado com sucesso para {recipient_email}[/green]")
+                                        successful += 1
+                                        
+                                        email_results.append({
+                                            'email': recipient_email,
+                                            'status': '[green]Enviado[/green]',
+                                            'tentativas': str(attempts),
+                                            'detalhes': 'Enviado com sucesso'
+                                        })
+                                        # Atualizar estado do último enviado com sucesso
+                                        try:
+                                            # Criar uma nova conexão para atualizar o estado
+                                            # Isso evita problemas com a conexão principal já fechada
+                                            with Database(self.config) as state_db:
+                                                state_db.execute(
+                                                    "sql/runtime/upsert_send_state.sql",
+                                                    (STATE_KEY, str(recipient.get('id'))),
+                                                )
+                                        except Exception as st_exc:
+                                            log.warning(f"Falha ao atualizar estado de envio: {st_exc}")
+                                        break
+                                        
+                                    except TimeoutException:
+                                        signal.alarm(0)
+                                        # Timeout é um problema de conexão, então ele tentará novamente se ainda estiver dentro do limite de tempo
+                                        # Reduzir o número máximo de tentativas para 2 e o tempo de espera
+                                        if attempts < 2 and time.time() < max_retry_time:
+                                            wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
+                                            progress.console.print(f"[yellow]⚠️ Timeout ao enviar para {recipient_email}. Tentando novamente em {wait_time}s...[/yellow]")
+                                            time.sleep(wait_time)
+                                            continue
+                                        else:
+                                            progress.console.print(f"[red]❌ Timeout ao enviar para {recipient_email} - tempo máximo excedido[/red]")
+                                            failed += 1
+                                            
+                                            # Marcar o contato com uma tag de problema
                                             try:
                                                 with Database(self.config) as tag_db:
                                                     tag_db.execute(
@@ -1048,107 +797,153 @@ class EmailService:
                                                     )
                                             except Exception as tag_exc:
                                                 log.warning(f"Falha ao marcar contato com tag de problema: {tag_exc}")
+                                            
+                                            email_results.append({
+                                                'email': recipient_email,
+                                                'status': '[red]Falha[/red]',
+                                                'tentativas': str(attempts),
+                                                'detalhes': f'Timeout após {send_timeout}s (tempo máximo excedido)'
+                                            })
+                                            break
                                         
-                                        failed += 1
-                                        email_results.append({
-                                            'email': recipient_email,
-                                            'status': '[red]Falha[/red]',
-                                            'tentativas': str(attempts),
-                                            'detalhes': str(e)[:50] + ('...' if len(str(e)) > 50 else '')
-                                        })
-                                        break
-                                    else:
-                                        progress.console.print(f"[yellow]⚠️ Falha temporária ao enviar para {recipient_email} (Tentativa {attempts}/2): {str(e)}[/yellow]")
-                                        if retry_delay_config > 0:
+                                    except Exception as e:
+                                        signal.alarm(0)
+                                        error_str = str(e).lower()
+                                        error_is_connection_related = is_connection_error(error_str)
+                                        
+                                        # Se for erro de conexão e ainda estiver dentro do limite de tempo, tenta novamente
+                                        # Reduzir o número máximo de tentativas para 2
+                                        if error_is_connection_related and attempts < 2 and time.time() < max_retry_time:
                                             wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
-                                            progress.console.print(f"[yellow]Aguardando {wait_time}s antes da próxima tentativa...[/yellow]")
+                                            tempo_restante = max(0, (max_retry_time - time.time()) / 60)
+                                            
+                                            progress.console.print(
+                                                f"[yellow]⚠️ Erro de conexão ao enviar para {recipient_email} "
+                                                f"(Tentativa {attempts}): {str(e)}[/yellow]"
+                                            )
+                                            progress.console.print(f"[blue]🔄 Aguardando {wait_time}s antes de tentar novamente... "
+                                                                  f"(Tempo restante: {tempo_restante:.1f} min)[/blue]")
                                             time.sleep(wait_time)
+                                            continue
+                                        # Se atingiu o número de tentativas OU não é erro de conexão OU tempo esgotado
+                                        elif attempts >= 2 or not error_is_connection_related or time.time() >= max_retry_time:
+                                            if error_is_connection_related:
+                                                reason = "tempo máximo excedido" if time.time() >= max_retry_time else f"após {attempts} tentativas"
+                                                progress.console.print(f"[red]❌ Falha de conexão ao enviar para {recipient_email} - {reason}: {str(e)}[/red]")
+                                            else:
+                                                progress.console.print(f"[red]❌ Falha ao enviar para {recipient_email}: {str(e)}[/red]")
+                                            
+                                            # Marcar o contato com uma tag de problema para erros de conexão
+                                            if error_is_connection_related:
+                                                try:
+                                                    with Database(self.config) as tag_db:
+                                                        tag_db.execute(
+                                                            "sql/tags/assign_tag_problem_by_email.sql",
+                                                            (recipient_email,),
+                                                        )
+                                                except Exception as tag_exc:
+                                                    log.warning(f"Falha ao marcar contato com tag de problema: {tag_exc}")
+                                            
+                                            failed += 1
+                                            email_results.append({
+                                                'email': recipient_email,
+                                                'status': '[red]Falha[/red]',
+                                                'tentativas': str(attempts),
+                                                'detalhes': str(e)[:50] + ('...' if len(str(e)) > 50 else '')
+                                            })
+                                            break
+                                        else:
+                                            progress.console.print(f"[yellow]⚠️ Falha temporária ao enviar para {recipient_email} (Tentativa {attempts}/2): {str(e)}[/yellow]")
+                                            if retry_delay_config > 0:
+                                                wait_time = min(30, retry_delay_config)  # No máximo 30s entre tentativas
+                                                progress.console.print(f"[yellow]Aguardando {wait_time}s antes da próxima tentativa...[/yellow]")
+                                                time.sleep(wait_time)
+                                
+                                # Increment counter for emails actually attempted in this batch
+                                if recipient_email: # Ensure we count only if there was an email to process
+                                    current_batch_processed_count +=1
                             
-                            # Increment counter for emails actually attempted in this batch
-                            if recipient_email: # Ensure we count only if there was an email to process
-                                current_batch_processed_count +=1
+                            # NEW PAUSE LOGIC: Pause after processing a non-empty batch, if it's not the last batch and delay is positive
+                            # And if actual emails were processed in this batch.
+                            if current_batch_processed_count > 0 and total_batches > 0 and batch_idx < total_batches - 1 and pause_duration_after_attempts > 0:
+                                pause_message = f"Pausa de {pause_duration_after_attempts}s após o lote {batch_idx + 1}/{int(total_batches)} (processou {current_batch_processed_count} emails)"
+                                progress.console.print(f"[blue]{pause_message}[/blue]")
+                                time.sleep(pause_duration_after_attempts)
+                        # Nada a marcar no fluxo simplificado
                         
-                        # NEW PAUSE LOGIC: Pause after processing a non-empty batch, if it's not the last batch and delay is positive
-                        # And if actual emails were processed in this batch.
-                        if current_batch_processed_count > 0 and total_batches > 0 and batch_idx < total_batches - 1 and pause_duration_after_attempts > 0:
-                            pause_message = f"Pausa de {pause_duration_after_attempts}s após o lote {batch_idx + 1}/{int(total_batches)} (processou {current_batch_processed_count} emails)"
-                            progress.console.print(f"[blue]{pause_message}[/blue]")
-                            time.sleep(pause_duration_after_attempts)
-                    # Nada a marcar no fluxo simplificado
-                    
-            except KeyboardInterrupt:
-                console.print("\n[bold yellow]Processo interrompido pelo usuário.[/bold yellow]")
-            finally:
-                signal.alarm(0)
-            
-            end_time = time.time()
-            duration = end_time - start_time
-            
-            # Exibir resultados em uma tabela formatada
-            console.rule("[bold blue]Relatório de Envio de Emails[/bold blue]")
-            
-            # Mostrar tabela de resultados
-            for result in email_results:
-                email_table.add_row(
-                    result['email'],
-                    result['status'],
-                    result['tentativas'],
-                    result['detalhes']
-                )
-            
-            console.print(email_table)
-            
-            # Tabela de resumo
-            summary_table = Table(title="Resumo de Envio", box=ROUNDED)
-            summary_table.add_column("Métrica", style="cyan")
-            summary_table.add_column("Valor", style="bold")
-            
-            # Calcular métricas adicionais
-            total_attempts = sum(int(r.get('tentativas', '1').split()[0]) for r in email_results if r.get('tentativas', '').strip() != '')
-            avg_attempts_per_email = total_attempts / max(1, successful + failed)
-            total_connection_errors = sum(1 for r in email_results if 'tempo' in r.get('detalhes', '').lower() or 'timeout' in r.get('detalhes', '').lower())
-            tempo_total_min = duration / 60
-            
-            summary_table.add_row("Total de Registros", str(total_records))
-            summary_table.add_row("Emails Enviados com Sucesso", f"[green]{successful}[/green]")
-            summary_table.add_row("Emails com Falha", f"[red]{failed}[/red]")
-            # Descadastros/bounces já são filtrados na SQL
-            summary_table.add_row("Total de Tentativas", str(total_attempts))
-            summary_table.add_row("Média de Tentativas por Email", f"{avg_attempts_per_email:.2f}")
-            summary_table.add_row("Falhas por Erro de Conexão", str(total_connection_errors))
-            summary_table.add_row("Descadastrados (ignorados)", str(unsub_ignored))
-            summary_table.add_row("Bounces (ignorados)", str(bounce_ignored))
-            summary_table.add_row("Tempo Total de Execução", f"{tempo_total_min:.2f} minutos ({duration:.1f}s)")
-            
-            console.print(summary_table)
-            
-            # Gerar relatório usando o report_generator
-            report_data = self.generate_report(
-                start_time,
-                end_time,
-                total_send_attempts,
-                successful,
-                failed,
-                ignored_unsubscribed=unsub_ignored,
-                ignored_bounces=bounce_ignored,
-            )
-            
-            console.print(f"Relatório salvo em: [bold cyan]{report_data.get('report_file', 'N/A')}[/bold cyan]")
-            # Notificação Telegram com sumário
-            try:
-                notify_telegram(
-                    (
-                        f"✅ Envio em lote concluído. Total: {total_records} | "
-                        f"Sucesso: {successful} | Falhas: {failed} | "
-                        f"Descadastrados ignorados: {unsub_ignored} | "
-                        f"Bounces ignorados: {bounce_ignored} | "
-                        f"Tempo: {duration:.1f}s"
+                except KeyboardInterrupt:
+                    console.print("\n[bold yellow]Processo interrompido pelo usuário.[/bold yellow]")
+                finally:
+                    signal.alarm(0)
+                
+                end_time = time.time()
+                duration = end_time - start_time
+                
+                # Exibir resultados em uma tabela formatada
+                console.rule("[bold blue]Relatório de Envio de Emails[/bold blue]")
+                
+                # Mostrar tabela de resultados
+                for result in email_results:
+                    email_table.add_row(
+                        result['email'],
+                        result['status'],
+                        result['tentativas'],
+                        result['detalhes']
                     )
+                
+                console.print(email_table)
+                
+                # Tabela de resumo
+                summary_table = Table(title="Resumo de Envio", box=ROUNDED)
+                summary_table.add_column("Métrica", style="cyan")
+                summary_table.add_column("Valor", style="bold")
+                
+                # Calcular métricas adicionais
+                total_attempts = sum(int(r.get('tentativas', '1').split()[0]) for r in email_results if r.get('tentativas', '').strip() != '')
+                avg_attempts_per_email = total_attempts / max(1, successful + failed)
+                total_connection_errors = sum(1 for r in email_results if 'tempo' in r.get('detalhes', '').lower() or 'timeout' in r.get('detalhes', '').lower())
+                tempo_total_min = duration / 60
+                
+                summary_table.add_row("Total de Registros", str(total_records))
+                summary_table.add_row("Emails Enviados com Sucesso", f"[green]{successful}[/green]")
+                summary_table.add_row("Emails com Falha", f"[red]{failed}[/red]")
+                # Descadastros/bounces já são filtrados na SQL
+                summary_table.add_row("Total de Tentativas", str(total_attempts))
+                summary_table.add_row("Média de Tentativas por Email", f"{avg_attempts_per_email:.2f}")
+                summary_table.add_row("Falhas por Erro de Conexão", str(total_connection_errors))
+                summary_table.add_row("Descadastrados (ignorados)", str(unsub_ignored))
+                summary_table.add_row("Bounces (ignorados)", str(bounce_ignored))
+                summary_table.add_row("Tempo Total de Execução", f"{tempo_total_min:.2f} minutos ({duration:.1f}s)")
+                
+                console.print(summary_table)
+                
+                # Gerar relatório usando o report_generator
+                report_data = self.generate_report(
+                    start_time,
+                    end_time,
+                    total_send_attempts,
+                    successful,
+                    failed,
+                    ignored_unsubscribed=unsub_ignored,
+                    ignored_bounces=bounce_ignored,
                 )
-            except Exception:
-                pass
-            
-            return report_data
+                
+                console.print(f"Relatório salvo em: [bold cyan]{report_data.get('report_file', 'N/A')}[/bold cyan]")
+                # Notificação Telegram com sumário
+                try:
+                    notify_telegram(
+                        (
+                            f"✅ Envio em lote concluído. Total: {total_records} | "
+                            f"Sucesso: {successful} | Falhas: {failed} | "
+                            f"Descadastrados ignorados: {unsub_ignored} | "
+                            f"Bounces ignorados: {bounce_ignored} | "
+                            f"Tempo: {duration:.1f}s"
+                        )
+                    )
+                except Exception:
+                    pass
+                
+                return report_data
         
         except Exception as e:
             import traceback

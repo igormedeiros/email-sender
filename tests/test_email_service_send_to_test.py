@@ -59,7 +59,7 @@ class FakeSmtpManager:
         self.sent.append((to_email, subject))
 
 
-def test_send_email_to_test_recipient(monkeypatch, tmp_path):
+def test_process_email_sending_test_mode(monkeypatch, tmp_path):
     tpl = tmp_path / "tpl.html"
     # Include a title/h1 so subject-from-body fallback can pick it up without API
     tpl.write_text("<html><head><title>Convite PowerTreine</title></head><body><h1>Convite PowerTreine Goiânia</h1>Hello {email}</body></html>", encoding="utf-8")
@@ -87,7 +87,7 @@ def test_send_email_to_test_recipient(monkeypatch, tmp_path):
         return generated_subject
     monkeypatch.setattr(es2.EmailService, "_generate_subject_for_body", _fake_generate, raising=True)
     monkeypatch.setattr(es2.EmailService, "_maybe_interactive_subject", _fake_maybe, raising=True)
-    report = svc.send_email_to_test_recipient(str(tpl), limit=2)
+    report = svc.process_email_sending(template=str(tpl), limit=2, is_test_mode=True)
     assert report["test_recipient"] == "to@test"
     # Ensure the selection SQL used excludes unsubscribed/bounces/tags per file path
     assert created_dbs and any("select_recipients_for_message.sql" in str(op[1]) for op in created_dbs[0].ops if op[0] == "fetch_all")
@@ -98,3 +98,22 @@ def test_send_email_to_test_recipient(monkeypatch, tmp_path):
     # Access the patched SmtpManager instance last call via monkeypatch above is not directly accessible here,
     # so we re-create and assert indirectly is not trivial. Instead, ensure the fallback runs without error by checking report keys.
     assert "duracao_formatada" in report or "duration" in report
+
+
+def test_process_email_sending_test_mode_no_recipients(monkeypatch, tmp_path):
+    tpl = tmp_path / "tpl.html"
+    tpl.write_text("<html><body>Hello {email}</body></html>", encoding="utf-8")
+
+    from email_sender import email_service as es
+    monkeypatch.setattr(es, "Database", lambda cfg: FakeDbNoRecipients())
+    monkeypatch.setattr(es, "SmtpManager", lambda cfg: FakeSmtpManager(cfg))
+
+    svc = EmailService(FakeConfig(tpl))
+    report = svc.process_email_sending(template=str(tpl), is_test_mode=True)
+    assert report["status"] == "no_emails"
+
+
+class FakeDbNoRecipients(FakeDb):
+    def fetch_all(self, sql, params=()):
+        self.ops.append(("fetch_all", sql, params))
+        return []

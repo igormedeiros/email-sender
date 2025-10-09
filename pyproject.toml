@@ -19,6 +19,8 @@ dependencies = [
     "langchain>=0.2.10",
     "langchain-google-genai>=1.0.5",
     "Babel>=2.15.0",
+    "uvicorn[standard]>=0.30.3",
+    "fastapi>=0.112.0",
 ]
 
 # Entry points de CLI
@@ -29,17 +31,9 @@ treineinsite-sendemails = "email_sender.cli:main"
 # Grupos de dependência (PEP 735)
 # ————————————————————————————
 [project.optional-dependencies]
-default = [
-    "uvicorn[standard]",
-    "fastapi",
-    "pyyaml>=6.0.2",
-    "typer>=0.15.3",
-    "rich>=13.0.0",
-    "python-dotenv>=1.1.0",
-    "flask>=3.0",
-    "gunicorn>=22.0",
-    "prompt_toolkit>=3.0.43",
-    "pyfiglet>=0.8.post1",
+web = [
+    "uvicorn[standard]>=0.30.3",
+    "fastapi>=0.112.0",
 ]
 
 dev = [
@@ -48,8 +42,6 @@ dev = [
     "black>=24.3",
     "isort>=5.13",
     "mypy>=1.10",
-    "uvicorn[standard]",  # Add uvicorn to dev dependencies for testing REST API
-    "fastapi",  # Add fastapi to dev dependencies for testing REST API
 ]
 
 # ————————————————————————————

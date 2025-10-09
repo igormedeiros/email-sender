@@ -172,81 +172,7 @@ def test_email_service_process_email_sending_with_no_recipients(monkeypatch):
         pass
 
 
-def test_email_service_send_email_to_test_recipient(monkeypatch):
-    """Test EmailService send_email_to_test_recipient method."""
-    config = FakeConfig()
-    service = EmailService(config)
-    
-    # Mock database to return test recipients
-    class MockDatabase:
-        def __enter__(self):
-            return self
-            
-        def __exit__(self, *args):
-            pass
-            
-        def fetch_one(self, *args, **kwargs):
-            # Return test recipient data
-            if "create_message" in str(args):
-                return {"id": 1}
-            return {"id": 1}
-            
-        def fetch_all(self, *args, **kwargs):
-            # Return test recipients
-            return [
-                {"id": 1, "email": "test1@example.com"},
-                {"id": 2, "email": "test2@example.com"}
-            ]
-            
-        def execute(self, *args, **kwargs):
-            return 1
-    
-    monkeypatch.setattr("email_sender.email_service.Database", MockDatabase)
-    
-    # Mock SMTP manager
-    class MockSmtpManager:
-        def __init__(self, config):
-            pass
-            
-        def send_email(self, *args, **kwargs):
-            pass  # Do nothing, just don't fail
-    
-    monkeypatch.setattr("email_sender.email_service.SmtpManager", MockSmtpManager)
-    
-    # Mock template processor
-    def mock_process_email_template(template_path, recipient, email_subject):
-        return "<html><body>Test Content</body></html>"
-        
-    monkeypatch.setattr(service, 'process_email_template', mock_process_email_template)
-    
-    # Mock subject generation
-    def mock_resolve_subject():
-        return "Test Subject"
-        
-    monkeypatch.setattr(service, '_resolve_subject', mock_resolve_subject)
-    
-    # Mock subject generation functions
-    def mock_generate_subject_for_body(*args, **kwargs):
-        return "Generated Subject"
-        
-    def mock_maybe_interactive_subject(*args, **kwargs):
-        return "Approved Subject"
-    
-    monkeypatch.setattr(service, '_generate_subject_for_body', mock_generate_subject_for_body)
-    monkeypatch.setattr(service, '_maybe_interactive_subject', mock_maybe_interactive_subject)
-    
-    # Test that send_email_to_test_recipient method exists
-    assert hasattr(service, 'send_email_to_test_recipient')
-    assert callable(service.send_email_to_test_recipient)
-    
-    # Test calling send_email_to_test_recipient
-    try:
-        result = service.send_email_to_test_recipient("config/templates/email.html", limit=2)
-        # Should return a result
-        assert result is not None
-    except Exception as e:
-        # If it raises an exception, that's okay for this test
-        pass
+
 
 
 def test_email_service_generate_subject_from_body_fallback_no_api(monkeypatch):
@@ -409,75 +335,7 @@ def test_email_service_process_email_sending_with_template_error(monkeypatch):
         pass
 
 
-def test_email_service_send_email_to_test_recipient_with_no_template(monkeypatch):
-    """Test EmailService send_email_to_test_recipient with missing template."""
-    config = FakeConfig()
-    service = EmailService(config)
-    
-    # Mock database to return test recipients
-    class MockDatabase:
-        def __enter__(self):
-            return self
-            
-        def __exit__(self, *args):
-            pass
-            
-        def fetch_one(self, *args, **kwargs):
-            if "create_message" in str(args):
-                return {"id": 1}
-            return {"id": 1}
-            
-        def fetch_all(self, *args, **kwargs):
-            # Return test recipients
-            return [
-                {"id": 1, "email": "test@example.com"}
-            ]
-            
-        def execute(self, *args, **kwargs):
-            return 1
-    
-    monkeypatch.setattr("email_sender.email_service.Database", MockDatabase)
-    
-    # Mock SMTP manager to raise an exception
-    class MockSmtpManager:
-        def __init__(self, config):
-            pass
-            
-        def send_email(self, *args, **kwargs):
-            raise Exception("SMTP error")
-    
-    monkeypatch.setattr("email_sender.email_service.SmtpManager", MockSmtpManager)
-    
-    # Mock template processor
-    def mock_process_email_template(template_path, recipient, email_subject):
-        return "<html><body>Test Content</body></html>"
-        
-    monkeypatch.setattr(service, 'process_email_template', mock_process_email_template)
-    
-    # Mock subject generation
-    def mock_resolve_subject():
-        return "Test Subject"
-        
-    monkeypatch.setattr(service, '_resolve_subject', mock_resolve_subject)
-    
-    # Mock subject generation functions
-    def mock_generate_subject_for_body(*args, **kwargs):
-        return "Generated Subject"
-        
-    def mock_maybe_interactive_subject(*args, **kwargs):
-        return "Approved Subject"
-    
-    monkeypatch.setattr(service, '_generate_subject_for_body', mock_generate_subject_for_body)
-    monkeypatch.setattr(service, '_maybe_interactive_subject', mock_maybe_interactive_subject)
-    
-    # Test that send_email_to_test_recipient handles SMTP errors gracefully
-    try:
-        result = service.send_email_to_test_recipient("nonexistent_template.html", limit=1)
-        # Should return a result even with SMTP errors
-        assert result is not None
-    except Exception as e:
-        # If it raises an exception, that's okay for this test
-        pass
+
 
 
 def test_email_service_with_missing_config_sections(monkeypatch):

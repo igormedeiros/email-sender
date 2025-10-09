@@ -108,15 +108,9 @@ def send_emails(
         print(f"Modo resolvido: {resolved_mode} (ENVIRONMENT={config.environment_mode})")
 
         # Em ambiente de teste, usar base Postgres (sql/) e segmentação de teste
-        if resolved_mode == "test":
-            print("Ambiente de teste detectado — enviando para segmento de teste no Postgres (sql/)...")
-            # No modo teste, enviar para até 3 contatos de teste (quando disponíveis)
-            result = email_service.send_email_to_test_recipient(template_path, limit=3)
-        else:
-            # Caminho legado/compatível: permite CSV explícito quando informado
-            result = email_service.process_email_sending(
+        result = email_service.process_email_sending(
                 template=template_path,
-                skip_unsubscribed_sync=skip_unsubscribed_sync,
+                limit=3 if resolved_mode == "test" else 0,
                 is_test_mode=(resolved_mode == "test")
             )
         
@@ -166,6 +160,75 @@ def reset_send_state(
     except Exception as e:
         error(f"Falha ao limpar o estado de envio: {e}")
         raise Exit(1)
+
+
+
+@app.command()
+def import_contacts_from_csv(
+    config_file: str = typer.Option(
+        "config/config.yaml", "--config", "-c", help="Path to config file"
+    ),
+    content_file: str = typer.Option(
+        "config/email.yaml", "--content", help="Path to email content file"
+    ),
+):
+    """
+    Import contacts from a contacts.csv file in the project root.
+    The CSV file should have a single column with the header 'email'.
+    """
+    try:
+        info("Iniciando importação de contatos do arquivo contacts.csv...")
+        
+        # Define o caminho do arquivo CSV
+        csv_path = Path.cwd() / "contacts.csv"
+        
+        if not csv_path.exists():
+            error("Arquivo contacts.csv não encontrado na raiz do projeto.")
+            info("Crie o arquivo com uma única coluna chamada 'email' e os contatos a serem importados.")
+            return
+
+        # Lê os e-mails do arquivo CSV
+        import csv
+        emails_to_import = set()
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader)  # Pula o cabeçalho
+            if header != ['email']:
+                error("O cabeçalho do arquivo contacts.csv deve ser 'email'.")
+                return
+            
+            for row in reader:
+                if row:
+                    email = row[0].lower().strip()
+                    if email:
+                        emails_to_import.add(email)
+
+        if not emails_to_import:
+            info("Nenhum email para importar encontrado no arquivo.")
+            return
+
+        # Constrói a query SQL
+        values_string = ",".join(f"('{email}', FALSE, FALSE)" for email in emails_to_import)
+        sql_query = f"INSERT INTO tbl_contacts (email, unsubscribed, is_buyer) VALUES {values_string} ON CONFLICT (email) DO NOTHING;"
+
+        # Escreve a query em um arquivo temporário
+        sql_file_path = Path.cwd() / "temp_import_contacts.sql"
+        with open(sql_file_path, "w") as f:
+            f.write(sql_query)
+
+        # Executa a importação
+        cfg = Config(config_file, content_file)
+        with Database(cfg) as db:
+            rows_affected = db.execute(sql_file_path)
+        
+        success(f"Importação concluída! {rows_affected} novos contatos foram inseridos.")
+
+    except Exception as e:
+        error(f"Falha na importação: {e}")
+    finally:
+        # Limpa o arquivo SQL temporário
+        if 'sql_file_path' in locals() and sql_file_path.exists():
+            os.remove(sql_file_path)
 
 
 if __name__ == "__main__":
