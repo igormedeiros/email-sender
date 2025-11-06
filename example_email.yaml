@@ -1,0 +1,16 @@
+email:
+  subject: "🔥 BLACK FRIDAY: 50% OFF no Curso de Proteção e Seletividade em São Paulo!"
+  template_path: config/templates/email.html
+
+evento:
+  link: https://www.sympla.com.br/evento/power-treine-sp---protecao-e-seletividade-em-projetos-de-media-tensao-e-geracao-distribuida/3091402?d=BlackFriday
+  sympla_id: '3091402'
+  nome: POWER TREINE (SP) - Proteção e Seletividade em Projetos de Média Tensão e Geração Distribuída
+  data: 8 e 9 de novembro
+  cidade: São Paulo
+  uf: SP
+  local: Wyndham São Paulo Ibirapuera (Antigo Bourbon)
+  cupom: BlackFriday
+
+promocao:
+  desconto: "50%"
