@@ -195,8 +195,11 @@ class SmtpManager:
 
     def send_email(self, to_email: str, subject: str, content: str, is_html: bool = False) -> None:
         """
-        Sends a single email.
+        Sends a single email usando conexão já estabelecida.
         """
+        if not self.smtp_connection:
+            raise Exception("SMTP not connected. Call connect() first.")
+        
         try:
             log.debug(f"Iniciando envio de email para: {to_email}")
             log.debug(f"Assunto: {subject}")
@@ -204,25 +207,23 @@ class SmtpManager:
             log.debug(f"is_html: {is_html}")
             
             message = self._create_message(to_email, subject, content, is_html)
-            with self._create_smtp_connection() as smtp:
-                log.info(f"Sending email to: {to_email}")
-                smtp.send_message(message)
-                log.info(f"Successfully sent email to: {to_email}")
+            log.info(f"Sending email to: {to_email}")
+            self.smtp_connection.send_message(message)
+            log.info(f"Successfully sent email to: {to_email}")
         except smtplib.SMTPServerDisconnected:
-            # This specific exception might indicate a need to re-establish connection and retry.
-            # For a single send, we might retry once or let the higher level handle retries for batches.
-            log.warning(f"SMTP server disconnected while trying to send to {to_email}. Attempting one reconnect and send.")
+            log.warning(f"SMTP server disconnected while trying to send to {to_email}. Attempting reconnect.")
             try:
-                message = self._create_message(to_email, subject, content, is_html) # Recreate message just in case
-                with self._create_smtp_connection() as smtp: # New connection
-                    smtp.send_message(message)
-                    log.info(f"Successfully sent email to: {to_email} after reconnect.")
+                self.disconnect()
+                self.connect()
+                message = self._create_message(to_email, subject, content, is_html)
+                self.smtp_connection.send_message(message)
+                log.info(f"Successfully sent email to: {to_email} after reconnect.")
             except Exception as e_retry:
                 log.error(f"Failed to send email to {to_email} after reconnect: {str(e_retry)}")
-                raise e_retry # Re-raise the exception from the retry attempt
+                raise e_retry
         except Exception as e:
             log.error(f"Failed to send email to {to_email}: {str(e)}")
-            raise e # Re-raise other exceptions
+            raise e
 
     def send_bulk_emails(self, recipients_data: List[Dict[str, Any]], subject_template: str, body_template_path: str, template_processor_func) -> Tuple[int, int]:
         """
