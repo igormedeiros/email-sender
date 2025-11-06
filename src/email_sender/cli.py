@@ -15,9 +15,9 @@ from .db import Database
 from .smtp_manager import SmtpManager
 from .email_service import EmailService
 
-# CONFIGURAR LOGGING PARA VER [DEBUG], [INFO], [ERROR]
+# CONFIGURAR LOGGING PARA VER [INFO], [WARNING], [ERROR]
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='[%(levelname)s] %(message)s'
 )
 
@@ -121,7 +121,7 @@ def send_emails_interactive():
             try:
                 db.connect()
                 db.execute("sql/messages/mark_message_unprocessed.sql", [1])
-                db.disconnect()
+                db.close()
                 console.print("[green]✓ Message reset para próximo envio (TESTE)[/green]")
             except Exception as e:
                 console.print(f"[yellow]⚠️  Não foi possível resetar message: {e}[/yellow]")

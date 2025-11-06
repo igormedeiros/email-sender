@@ -1,5 +1,6 @@
 import logging
 import time
+from pathlib import Path
 from typing import Dict, Any
 
 from .config import Config
@@ -54,7 +55,8 @@ class EmailService:
                 result['errors'].append(f"DB connect: {str(e)}")
                 return result
             
-            # 2. VALIDAR MENSAGEM
+            # 2. VALIDAR MENSAGEM E BUSCAR ASSUNTO
+            message_subject = None
             try:
                 log.info(f"[STEP 2] Validando mensagem {message_id}...")
                 check_msg_path = "sql/messages/check_message_valid.sql"
@@ -65,7 +67,43 @@ class EmailService:
                     result['errors'].append(f"Message {message_id} invalid or processed")
                     return result
                 
-                log.info(f"[STEP 2] ✅ Mensagem validada")
+                # Buscar assunto da mensagem
+                log.debug(f"[STEP 2] Buscando assunto da configuração...")
+                content_config = self.config.content_config
+                message_subject = content_config.get('email', {}).get('subject', 'Sem assunto')
+                
+                # Carregar template HTML
+                log.debug(f"[STEP 2] Carregando template HTML...")
+                template_path = self.config.email_config.get('template_path', 'config/templates/email.html')
+                try:
+                    message_html = Path(template_path).read_text(encoding='utf-8')
+                    
+                    # Processar placeholders do template com dados do content_config
+                    log.debug(f"[STEP 2] Processando placeholders...")
+                    evento = content_config.get('evento', {})
+                    promocao = content_config.get('promocao', {})
+                    
+                    # Substituir placeholders
+                    message_html = message_html.replace('{data_evento}', evento.get('data', ''))
+                    message_html = message_html.replace('{cidade}', evento.get('cidade', ''))
+                    message_html = message_html.replace('{link_evento}', evento.get('link', ''))
+                    message_html = message_html.replace('{uf}', evento.get('uf', ''))
+                    message_html = message_html.replace('{local}', evento.get('local', ''))
+                    message_html = message_html.replace('{horario}', evento.get('horario', ''))
+                    
+                    # Desconto parágrafo
+                    desconto = promocao.get('desconto', '')
+                    if desconto:
+                        desconto_para = f"<p><strong>🎉 DESCONTO ESPECIAL: {desconto} OFF!</strong> Use o cupom <strong>{evento.get('cupom', '')}</strong> para garantir esse preço exclusivo.</p>"
+                    else:
+                        desconto_para = ""
+                    message_html = message_html.replace('{desconto_paragrafo}', desconto_para)
+                    
+                except Exception as e:
+                    log.warning(f"[STEP 2] Erro ao processar template: {e}")
+                    message_html = '<p>Sem conteúdo</p>'
+                
+                log.info(f"[STEP 2] ✅ Mensagem validada (subject: {message_subject[:50] if message_subject else 'N/A'}...)")
             except Exception as e:
                 log.error(f"[STEP 2] ❌ Erro: {type(e).__name__}: {e}")
                 result['errors'].append(f"Message check: {str(e)}")
@@ -125,8 +163,8 @@ class EmailService:
                         continue
                     
                     # PROTEÇÃO 2: Verificar BD (já enviado antes?) - APENAS em PRODUÇÃO
-                    # Em TESTE mode, permitir reenvio (dry_run=True significa TESTE)
-                    if not dry_run:  # Se PRODUÇÃO (dry_run=False)
+                    # Em TESTE mode, permitir reenvio (is_test_mode=True)
+                    if not is_test_mode:  # Se PRODUÇÃO (is_test_mode=False)
                         try:
                             log.debug(f"[STEP 5.{i}] Verificando BD...")
                             check_query_path = "sql/messages/check_email_already_sent.sql"
@@ -146,8 +184,8 @@ class EmailService:
                             log.debug(f"[STEP 5.{i}] 📧 Enviando email...")
                             self.smtp.send_email(
                                 to_email=email,
-                                subject="Test Email",
-                                content="<p>Test message</p>",
+                                subject=message_subject or 'Sem assunto',
+                                content=message_html or '<p>Sem conteúdo</p>',
                                 is_html=True
                             )
                             log.info(f"[STEP 5.{i}] ✅ Email enviado para {email}")
