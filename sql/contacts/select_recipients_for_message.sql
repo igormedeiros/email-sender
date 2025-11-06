@@ -1,64 +1,58 @@
--- Select recipients for a message, parameterized
--- $1: boolean is_test_mode
--- $2: integer message_id
-SELECT
+-- Select recipients for a message
+-- Params: is_test_mode (boolean), message_id (integer)
+-- Protections: Excludes unsubscribed, bounce, buyers and already sent
+
+WITH excluded_by_column AS (
+    -- Contatos que têm unsubscribed=TRUE ou is_buyer=TRUE na tabela principal
+    SELECT id FROM tbl_contacts 
+    WHERE unsubscribed = TRUE OR is_buyer = TRUE
+),
+excluded_by_tag AS (
+    -- Contatos com tags que devem ser excluídos
+    SELECT DISTINCT ctg.contact_id
+    FROM tbl_contact_tags ctg
+    INNER JOIN tbl_tags tg ON ctg.tag_id = tg.id
+    WHERE LOWER(tg.tag_name) IN ('unsubscribed', 'bounce', 'bouncy', 'buyer_s2c5f20', 'invalid', 'problem')
+),
+test_contacts AS (
+    -- Contatos com tag 'test'
+    SELECT DISTINCT ctg.contact_id
+    FROM tbl_contact_tags ctg
+    INNER JOIN tbl_tags tg ON ctg.tag_id = tg.id
+    WHERE LOWER(tg.tag_name) = 'test'
+)
+SELECT DISTINCT
     tc.id,
     tc.email
-FROM
-    tbl_contacts AS tc
+FROM tbl_contacts tc
 WHERE
-    tc.email IS NOT NULL AND tc.email <> ''
-    AND tc.is_buyer = FALSE
-    AND tc.unsubscribed = FALSE
-    AND NOT EXISTS (
-        SELECT 1
-        FROM tbl_contact_tags AS ctb
-        JOIN tbl_tags AS t ON ctb.tag_id = t.id
-        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) = 'unsubscribed'
-    )
-    AND NOT EXISTS (
-        SELECT 1
-        FROM tbl_contact_tags AS ctb
-        JOIN tbl_tags AS t ON ctb.tag_id = t.id
-        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) IN ('bounce','bouncy')
-    )
-    AND NOT EXISTS (
-        SELECT 1
-        FROM tbl_contact_tags AS ctb
-        JOIN tbl_tags AS t ON ctb.tag_id = t.id
-        WHERE ctb.contact_id = tc.id AND LOWER(TRIM(t.tag_name)) = 'buyer_s2c5f20'
-    )
-    AND (
-        ($1 = TRUE AND EXISTS (
-            SELECT 1
-            FROM tbl_contact_tags AS ctb_t
-            JOIN tbl_tags AS t_t ON ctb_t.tag_id = t_t.id
-            WHERE ctb_t.contact_id = tc.id AND LOWER(TRIM(t_t.tag_name)) = 'test'
-        ))
+    -- ✅ Filter: Test mode vs production
+    (
+        ($1 = TRUE AND tc.id IN (SELECT contact_id FROM test_contacts))
         OR
-        ($1 = FALSE AND NOT EXISTS (
-            SELECT 1
-            FROM tbl_contact_tags AS ctb_t
-            JOIN tbl_tags AS t_t ON ctb_t.tag_id = t_t.id
-            WHERE ctb_t.contact_id = tc.id AND LOWER(TRIM(t_t.tag_name)) = 'test'
-        ))
+        ($1 = FALSE AND tc.id NOT IN (SELECT contact_id FROM test_contacts))
     )
-    -- Prevent contacts who have already received any email from being selected again (only in production)
+    
+    AND tc.email IS NOT NULL 
+    AND tc.email <> ''
+    
+    AND tc.id NOT IN (SELECT id FROM excluded_by_column)
+    
+    AND tc.id NOT IN (SELECT contact_id FROM excluded_by_tag)
+    
     AND (
-        $1 = TRUE -- If in test mode, do not check for previous sends
-        OR
-        NOT EXISTS (
-            SELECT 1
-            FROM tbl_message_logs AS tmsl
-            WHERE tmsl.contact_id = tc.id AND tmsl.event_type = 'sent'
+        tc.id NOT IN (
+            SELECT DISTINCT contact_id
+            FROM tbl_message_logs
+            WHERE message_id = $2 AND event_type = 'sent'
         )
+        OR $1 = TRUE
     )
-    AND NOT EXISTS (
-        SELECT 1
-        FROM tbl_message_logs AS tmsl
-        WHERE tmsl.contact_id = tc.id AND tmsl.message_id = $2
-    )
+    
     AND EXISTS (
-        SELECT 1 FROM tbl_messages tm WHERE tm.id = $2 AND tm.processed = FALSE
+        SELECT 1 FROM tbl_messages 
+        WHERE id = $2 AND processed = FALSE
     )
+    
 ORDER BY tc.id ASC;
+

@@ -6,15 +6,88 @@ import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from contextlib import contextmanager
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Union
 
-from .config import Config # Assuming Config is accessible like this
-
-log = logging.getLogger(__name__) # Use module-specific logger
+log = logging.getLogger(__name__)
 
 class SmtpManager:
-    def __init__(self, config: Config):
-        self.config = config
+    def __init__(self, config: Union[Dict[str, Any], Any]):
+        """
+        Inicializa SmtpManager.
+        
+        Args:
+            config: Config object com atributos smtp_config e email_config
+        """
+        # Guardar Config object original COMPLETO
+        self.config_obj = config
+        
+        # Se for Config object, extrair smtp_config e email_config
+        if hasattr(config, 'smtp_config'):
+            self.smtp_config = config.smtp_config
+            self.email_config = config.email_config
+        else:
+            # Se for dict, usar direto (compatibilidade)
+            self.smtp_config = config if isinstance(config, dict) else {}
+            self.email_config = getattr(config, 'email_config', {})
+        
+        self.smtp_connection = None
+
+    def connect(self):
+        """Estabelece conexão SMTP."""
+        if self.smtp_connection is None:
+            retry_attempts = self.smtp_config.get("retry_attempts", 3)
+            retry_delay = self.smtp_config.get("retry_delay", 5)
+            timeout = self.smtp_config.get("send_timeout", 10)
+            last_exception = None
+
+            for attempt in range(retry_attempts):
+                try:
+                    if attempt > 0:
+                        log.info(f"Tentativa {attempt + 1} de {retry_attempts} para conectar ao SMTP...")
+                    
+                    self.smtp_connection = smtplib.SMTP(
+                        self.smtp_config["host"],
+                        self.smtp_config["port"],
+                        timeout=timeout
+                    )
+                    
+                    if self.smtp_config.get("use_tls", True):
+                        self.smtp_connection.starttls()
+                        
+                    self.smtp_connection.login(
+                        self.smtp_config["username"],
+                        self.smtp_config["password"]
+                    )
+                    log.info(f"Conectado ao servidor SMTP: {self.smtp_config['host']}:{self.smtp_config['port']}")
+                    return
+                except Exception as e:
+                    last_exception = e
+                    log.error(f"Falha na tentativa {attempt + 1} de conexão SMTP: {str(e)}")
+                    if self.smtp_connection:
+                        try:
+                            self.smtp_connection.close()
+                        except:
+                            pass
+                    self.smtp_connection = None
+                    if attempt < retry_attempts - 1 and retry_delay > 0:
+                        time.sleep(retry_delay)
+            
+            raise Exception(f"Falha ao conectar ao servidor SMTP após {retry_attempts} tentativas: {str(last_exception)}")
+
+    def disconnect(self):
+        """Encerra conexão SMTP."""
+        if self.smtp_connection:
+            try:
+                self.smtp_connection.quit()
+                log.info("Conexão SMTP encerrada")
+            except Exception as e:
+                log.warning(f"Erro ao encerrar SMTP: {e}")
+                try:
+                    self.smtp_connection.close()
+                except:
+                    pass
+            finally:
+                self.smtp_connection = None
 
     def _extract_email_address(self, sender: str) -> str:
         """Extract email address from sender string format 'Name | Company <email@domain.com>'"""
@@ -23,9 +96,9 @@ class SmtpManager:
 
     @contextmanager
     def _create_smtp_connection(self):
-        retry_attempts = self.config.smtp_config.get("retry_attempts", 3)
-        retry_delay = self.config.smtp_config.get("retry_delay", 5)
-        timeout = self.config.smtp_config.get("send_timeout", 10)
+        retry_attempts = self.smtp_config.get("retry_attempts", 3)
+        retry_delay = self.smtp_config.get("retry_delay", 5)
+        timeout = self.smtp_config.get("send_timeout", 10)
         last_exception = None
         smtp = None
 
@@ -35,19 +108,19 @@ class SmtpManager:
                     log.info(f"Attempt {attempt + 1} of {retry_attempts} to connect to SMTP...")
                 
                 smtp = smtplib.SMTP(
-                    self.config.smtp_config["host"],
-                    self.config.smtp_config["port"],
+                    self.smtp_config["host"],
+                    self.smtp_config["port"],
                     timeout=timeout
                 )
                 
-                if self.config.smtp_config["use_tls"]:
+                if self.smtp_config["use_tls"]:
                     smtp.starttls()
                     
                 smtp.login(
-                    self.config.smtp_config["username"],
-                    self.config.smtp_config["password"]
+                    self.smtp_config["username"],
+                    self.smtp_config["password"]
                 )
-                log.info(f"Successfully connected to SMTP server: {self.config.smtp_config['host']}:{self.config.smtp_config['port']}")
+                log.info(f"Successfully connected to SMTP server: {self.smtp_config['host']}:{self.smtp_config['port']}")
                 break
             except Exception as e:
                 last_exception = e
@@ -91,7 +164,7 @@ class SmtpManager:
         message["Subject"] = subject
         
         # Use sender from email_config, extract only the email address for From, Reply-To, Return-Path
-        sender_display_name = self.config.email_config.get("sender", "Default Sender <default@example.com>")
+        sender_display_name = self.email_config.get("sender", "Default Sender <default@example.com>")
         sender_email = self._extract_email_address(sender_display_name)
 
         message["From"] = sender_display_name # Full sender for display
@@ -132,7 +205,7 @@ class SmtpManager:
             
             message = self._create_message(to_email, subject, content, is_html)
             with self._create_smtp_connection() as smtp:
-                log.info(f"Sending email to: {to_email} with subject: '{subject}'")
+                log.info(f"Sending email to: {to_email}")
                 smtp.send_message(message)
                 log.info(f"Successfully sent email to: {to_email}")
         except smtplib.SMTPServerDisconnected:

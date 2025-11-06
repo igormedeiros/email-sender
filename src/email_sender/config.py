@@ -5,7 +5,6 @@ import os
 import logging
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
-from .utils.secrets_manager import SecretsManager, SecretSource
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +12,11 @@ class Config:
     def __init__(self, config_file: str = "config/config.yaml", email_content_file: str = "config/email.yaml", rest_config_file: str = "config/rest.yaml"):
         # Carregar variáveis de ambiente do arquivo .env
         load_dotenv()
-        
+
         self.config_file = config_file
         self.email_content_file = email_content_file
         self.rest_config_file = rest_config_file
-        
+
         # Carregar configurações a partir do arquivo YAML
         if config_file.endswith('.yaml') or config_file.endswith('.yml'):
             with open(config_file, 'r', encoding='utf-8') as file:
@@ -27,7 +26,7 @@ class Config:
             config_parser = ConfigParser()
             config_parser.read(config_file)
             self.config = self._convert_parser_to_dict(config_parser)
-            
+
         # Carregar conteúdo de email do arquivo email.yaml
         try:
             with open(email_content_file, 'r', encoding='utf-8') as file:
@@ -35,7 +34,7 @@ class Config:
         except FileNotFoundError:
             logger.warning(f"Arquivo de conteúdo de email {email_content_file} não encontrado. Usando valores vazios.")
             self.email_content = {}
-            
+
         # Carregar configurações REST se existirem
         try:
             if os.path.exists(rest_config_file):
@@ -46,56 +45,12 @@ class Config:
         except Exception as e:
             logger.error(f"Erro ao carregar configurações REST: {str(e)}")
             self.rest_config = {}
-            
-        # Inicializar o gerenciador de segredos
-        self._init_secrets_manager()
-        
+
         # Carregar modo de ambiente da variável ENVIRONMENT
         self._environment = os.getenv("ENVIRONMENT", "test").strip().lower()
         if self._environment not in {"test", "prod", "production"}:
             logger.warning("ENVIRONMENT inválido: %s. Usando 'test' por padrão.", self._environment)
             self._environment = "test"
-            
-    def _init_secrets_manager(self):
-        """Inicializa o gerenciador de segredos com base nas configurações"""
-        # Determinar a fonte de segredos a ser usada
-        secret_source_str = os.getenv("SECRET_SOURCE", "env").lower()
-        
-        # Mapear string para enum
-        source_map = {
-            "env": SecretSource.ENV,
-            "dotenv": SecretSource.DOTENV,
-            "aws": SecretSource.AWS_SECRETS,
-            "azure": SecretSource.AZURE_KEYVAULT,
-            "vault": SecretSource.VAULT
-        }
-        
-        source = source_map.get(secret_source_str, SecretSource.ENV)
-        
-        # Obter configurações específicas para cada fonte
-        dotenv_path = os.getenv("DOTENV_PATH", ".env")
-        aws_region = os.getenv("AWS_REGION", "us-east-1")
-        azure_vault_url = os.getenv("AZURE_VAULT_URL")
-        vault_url = os.getenv("VAULT_URL")
-        
-        # Valores padrão das configurações YAML para fallback
-        config_defaults = {}
-        if "smtp" in self.config:
-            config_defaults["SMTP_USERNAME"] = self.config["smtp"].get("username", "")
-            config_defaults["SMTP_PASSWORD"] = self.config["smtp"].get("password", "")
-        
-        # Criar o gerenciador de segredos
-        self.secrets_manager = SecretsManager(
-            source=source,
-            dotenv_path=dotenv_path,
-            aws_region=aws_region,
-            azure_vault_url=azure_vault_url,
-            vault_url=vault_url,
-            config_defaults=config_defaults
-        )
-        
-        # Log da fonte de segredos sendo usada
-        logger.info(f"Usando fonte de segredos: {source.value}")
 
     def _convert_parser_to_dict(self, parser: ConfigParser) -> dict:
         """Converte um ConfigParser para um dicionário"""
@@ -108,18 +63,22 @@ class Config:
 
     @property
     def smtp_config(self) -> dict:
-        # Obter credenciais do gerenciador de segredos
-        smtp_credentials = self.secrets_manager.get_smtp_credentials()
-        
+        # Obter credenciais diretamente das variáveis de ambiente
+        smtp_username = os.getenv("SMTP_USERNAME", self.config["smtp"].get("username", ""))
+        smtp_password = os.getenv("SMTP_PASSWORD", self.config["smtp"].get("password", ""))
+
+        # Permite a sobreposição do host SMTP via variável de ambiente
+        smtp_host = os.getenv("SMTP_HOST_OVERRIDE", self.config["smtp"].get("host", ""))
+
         return {
-            "host": self.config["smtp"].get("host", ""),
+            "host": smtp_host,
             "port": int(self.config["smtp"].get("port", 587)),
-            "username": smtp_credentials["username"],
-            "password": smtp_credentials["password"],
+            "username": smtp_username,
+            "password": smtp_password,
             "use_tls": self.config["smtp"].get("use_tls", True),
             "retry_attempts": int(self.config["smtp"].get("retry_attempts", 3)),
             "retry_delay": int(self.config["smtp"].get("retry_delay", 5)),
-            "send_timeout": int(self.config["smtp"].get("send_timeout", 10))
+            "send_timeout": int(self.config["smtp"].get("send_timeout", 3))
         }
 
     @property
@@ -130,6 +89,8 @@ class Config:
             "test_recipient": self.config["email"].get("test_recipient"),
             "batch_delay": int(self.config["email"].get("batch_delay", 60)),
             "public_domain": self.config["email"].get("public_domain", "mkt.treineinsite.com.br"),
+            "max_workers": int(self.config["email"].get("max_workers", 10)),
+            "send_timeout": int(self.config["email"].get("send_timeout", 3)),
         }
 
     @property
@@ -170,6 +131,14 @@ class Config:
             "file": logging_config.get("file", "")
         }
     
+    @property
+    def logging_config(self) -> dict:
+        """Retorna as configurações de log gerais"""
+        logging_config = self.config.get("logging", {})
+        return {
+            "level": logging_config.get("level", "INFO")
+        }
+
     @property
     def rest_timeout_config(self) -> dict:
         """Retorna as configurações de timeout da API REST"""

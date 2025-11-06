@@ -1,105 +1,318 @@
-# Padrões de Projeto, Diretrizes e Instruções para Copilot/IA
+# Padrões de Projeto & Diretrizes de Desenvolvimento
 
-Este documento consolida as diretrizes de engenharia e instruções de uso de IA no projeto.
+**Princípio Central:** KISS (Keep It Simple, Stupid) + Clean Code  
+**Versão:** 2.0 | **Atualizado:** November 6, 2025
 
-## Stack, arquitetura e princípios
-- Linguagem: Python 3.12+
-- Tipo de app: CLI com Typer + Rich
-- Princípios: KISS, Clean Code, Clean Architecture
-- Paradigma: OO simples (preferir composição)
-- GenAI: isolado e desacoplado do domínio
+---
 
-## Estrutura de pastas
+vc nunca envia emails em produção a menos que que seja explicitamente solicitado
+
+## 🏗️ Stack & Arquitetura
+
+| Componente | Tecnologia |
+|-----------|-----------|
+| Linguagem | Python 3.12+ |
+| CLI | Typer + Rich |
+| Banco | PostgreSQL + psycopg |
+| SMTP | smtplib (stdlib) |
+| IA | Google Gemini + LangChain |
+| Config | YAML + .env |
+| Build | uv |
+| Testes | pytest |
+
+---
+
+## 📁 Estrutura de Pastas (Minimalista)
+
 ```
-.
-├── src/
-│   └── email_sender/
-│       ├── cli.py
-│       ├── application/
-│       ├── domain/
-│       ├── infrastructure/
-│       └── interfaces/
-├── tests/
-│   ├── conftest.py
-│   └── unit/
-├── sql/
-│   ├── contacts/
-│   ├── messages/
-│   ├── leads/
-│   ├── tags/
-│   └── events/
-└── .github/
-    └── copilot-instructions.md
+src/email_sender/              # Core do sistema
+├── __init__.py
+├── cli.py                      # Interface CLI (entrada)
+├── email_service.py            # Lógica de envio + deduplicação (4 níveis)
+├── smtp_manager.py             # Gerenciador SMTP com retry
+├── db.py                       # Camada de BD (suporta queries em arquivo)
+├── config.py                   # Carregamento de config YAML + .env
+└── utils/
+    ├── __init__.py
+    └── ui.py                   # Componentes Rich para UI
+
+config/                        # Configuração externa (não versionado)
+├── config.yaml               # Operacional: db, smtp, email
+├── email.yaml                # Conteúdo dinâmico de emails
+├── rest.yaml                 # Configuração API REST
+├── api-docs.yaml             # Documentação OpenAPI
+└── templates/
+    └── email.html            # Template padrão
+
+sql/                          # Queries SQL por domínio
+├── contacts/
+│   ├── select_recipients_for_message.sql
+│   └── check_contact_exclusions.sql
+├── messages/
+│   ├── check_message_sent.sql
+│   ├── insert_message_sent_log.sql
+│   └── create_message.sql
+├── events/
+├── tags/
+└── leads/
+
+tests/                        # Testes automatizados
+├── conftest.py
+└── unit/
+    ├── test_email_service.py
+    ├── test_smtp_manager.py
+    ├── test_db.py
+    └── test_config.py
+
+docs/                         # Documentação
+├── prd.md                    # PRD completo
+└── (adicionar conforme necessário)
 ```
-- Apenas `src/` e `tests/` na raiz além de pastas utilitárias como `sql/`.
 
-## Imports
-- Nunca `import src.*`. Usar `from email_sender...`.
+**Princípios:**
+- ✅ Apenas `src/` e `tests/` para código
+- ✅ SQL em `sql/` com subpastas temáticas
+- ✅ Configuração em `config/` (não versionado)
+- ✅ Sem `infrastructure/`, `interfaces/`, `domain/`, `application/` (arquitetura pesada removida)
 
-## CLI
+---
+
+## 💻 Padrões de Código
+
+### Imports
+```python
+# ✅ Correto
+from email_sender.config import Config
+from email_sender.smtp_manager import SmtpManager
+
+# ❌ Errado
+import src.email_sender.cli
+from src.email_sender import cli
+```
+
+### Funções
+- Nomes descritivos em inglês
+- Docstrings em português (se necessário)
+- Máximo 3 níveis de aninhamento
+- Funções curtas (<30 linhas preferencialmente)
+- Sem variáveis globais
+
+### Classes
+- Uma responsabilidade por classe
+- Composição sobre herança
+- Injeção de dependências
+- Exemplo:
+```python
+class EmailService:
+    def __init__(self, config: Config, db: Database, smtp: SmtpManager):
+        self.config = config
+        self.db = db
+        self.smtp = smtp
+    
+    def send_batch(self, message_id: int, dry_run: bool = False) -> dict:
+        """Enviar emails em lote com 4 níveis de deduplicação."""
+        # ...
+```
+
+---
+
+## 📝 SQL & Queries
+
+### Regra Principal
+- ❌ Nunca SQL inline em Python (exceto casos simples)
+- ✅ Queries em arquivos `.sql` em `sql/{dominio}/`
+
+### Estrutura de Arquivo SQL
+```sql
+-- select_recipients_for_message.sql
+-- Propósito: Buscar contatos elegíveis para envio
+-- Variáveis: $1 = is_test_mode, $2 = message_id
+-- Autor: email_service.py
+
+SELECT DISTINCT ON (tc.id) tc.id, tc.email
+FROM tbl_contacts tc
+WHERE ...
+```
+
+### Uso em Python
+```python
+# ✅ Correto
+recipients = db.fetch_all("sql/contacts/select_recipients_for_message.sql", params)
+
+# ❌ Errado
+recipients = db.fetch_all("""SELECT ... FROM tbl_contacts WHERE ...""", params)
+```
+
+---
+
+## ⚙️ Configuração (YAML + .env)
+
+### config.yaml (Operacional)
+```yaml
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: ${DB_PASSWORD}
+  database: treineinsite
+
+smtp:
+  host: smtplw.com.br
+  port: 587
+  user: ${SMTP_USERNAME}
+  password: ${SMTP_PASSWORD}
+  retry_attempts: 2
+  retry_delay: 5
+```
+
+### .env (Credenciais - NÃO versionado)
+```
+DB_PASSWORD=sua_senha
+SMTP_USERNAME=seu_user
+SMTP_PASSWORD=sua_senha
+GENAI_API_KEY=chave_google
+```
+
+### Carregamento em Código
+```python
+from email_sender.config import Config
+
+config = Config()
+# Automaticamente carrega config/config.yaml + .env
+```
+
+---
+
+## 🧪 Testes
+
+### Princípios
+- ✅ Usar `pytest`
+- ✅ Sem acesso à rede (mock externas)
+- ✅ Fixtures em `conftest.py`
+- ✅ Mínimo 85% cobertura
+
+### Exemplo
+```python
+def test_email_service_deduplication(config, db_mock, smtp_mock):
+    """Verificar que não envia 2x para o mesmo contato."""
+    service = EmailService(config, db_mock, smtp_mock)
+    result = service.send_batch(message_id=1, dry_run=False)
+    
+    # Verificar que enviou apenas 1x (não duplicada)
+    assert result['sent'] == 1
+    assert smtp_mock.send.call_count == 1
+```
+
+### Executar
+```bash
+uv run pytest                    # Todos
+uv run pytest -v                 # Verbose
+uv run pytest --cov=src/email_sender  # Com cobertura
+```
+
+---
+
+## 🔧 CLI (Typer)
+
+### Princípios
 - Comandos curtos e claros
-- `--help` completo, Rich para UX
+- Help completo com `--help`
 - Códigos de saída padronizados
+- Uso de Rich para output
 
-## Organização do CLI
-- `email_sender/cli.py` registra comandos e delega para casos de uso
+### Exemplo
+```python
+import typer
+from rich.console import Console
 
-## Clean Architecture
-- Domain, Application, Interfaces (ports), Infrastructure (adapters)
-- Dependências apontam para dentro
+app = typer.Typer()
+console = Console()
 
-## Nova arquitetura (esqueleto recomendado)
+@app.command()
+def send(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Não enviar de verdade")
+):
+    """Enviar emails em lote."""
+    console.print("[bold green]Iniciando envio...[/bold green]")
+    # ...
 ```
-src/email_sender/
-  domain/
-  interfaces/
-  application/
-  infrastructure/
-  cli.py
+
+### Executar
+```bash
+uv run -m email_sender.cli --help
+uv run -m email_sender.cli send --help
 ```
 
-## Eventos e notificações (Telegram)
-- Notificar início/fim e resumos; ler credenciais do `.env`.
+---
 
-## .env (obrigatório)
-- `ENVIRONMENT`, variáveis de Postgres e Telegram
+## 🔒 Segurança & Dados Sensíveis
 
-## Regras de execução por ambiente
-- `test`: não enviar para base real; apenas testes
-- `prod`: filtros completos, retries e throttle
+### .gitignore (obrigatório)
+```
+.env
+config/config.yaml
+config/email.yaml
+config/rest.yaml
+config/api-docs.yaml
+templates/email.html
+reports/
+*.log
+```
 
-## LangChain e GenAI
-- Componentes de IA em `infrastructure/genai/` e portas em `interfaces/`
-- Prompts fora do código (ver seção SQL/Prompts)
+### Variáveis Sensíveis
+- ✅ Em `.env` ou variáveis de ambiente
+- ✅ Carregadas via `Config` class
+- ✅ Nunca hardcoded
+- ✅ Nunca commitadas
 
-## Erros, logs e observabilidade
-- Exceções específicas; logs claros
+---
 
-## Testes
-- `pytest`, sem acesso à rede; dublês nas interfaces
+## 🚀 Boas Práticas
 
-## Qualidade e estilo
-- Black + isort (+ mypy quando fizer sentido)
-- Nomes descritivos, funções curtas, poucos níveis de aninhamento
+### O que Fazer (KISS)
+- ✅ Código simples e direto
+- ✅ Poucas dependências
+- ✅ Testes bem escritos
+- ✅ Documentação clara
+- ✅ SQL bem estruturado
+- ✅ Configuração externa
 
-## Idioma e nomenclatura
-- Identificadores em inglês; comentários/docstrings em PT‑BR
+### O que NÃO Fazer (Evitar)
+- ❌ Arquitetura pesada (Clean Architecture completa)
+- ❌ Abstração desnecessária
+- ❌ Múltiplas camadas de indireção
+- ❌ SQL inline em Python
+- ❌ Hardcoding de valores
+- ❌ Variáveis globais
+- ❌ Funções muito complexas
 
-## Empacotamento e execução (uv)
-- Usar `uv` para sync/add/remove/lock e executar `pytest`/CLI
+---
 
-## Convenções adicionais
-- Funções puras no domínio, dependências injetadas
+## 📊 Performance & Escalabilidade
 
-## Organização de SQL e Prompts (Regra)
-- Não misturar consultas SQL ou prompts de IA dentro do código Python.
-- Centralizar SQL em `sql/` com subpastas temáticas (`contacts/`, `messages/`, `events/`, `leads/`, `tags/`).
-  - Cada `.sql` começa com cabeçalho de origem (workflow/nó) e variáveis usadas.
-- Prompts de IA devem ser versionados fora do código Python, preferencialmente em:
-  - `.github/business_rules.prompt.md` (regras de negócio)
-  - `.github/copilot-instructions.md` (este documento)
-  - `prompts/` (se necessário) para prompts operacionais
-- O código deve referenciar arquivos externos (SQL/Prompts) por caminho via configuração; nunca inline.
+### Otimizações Atuais
+- Batch processing (200 emails por lote)
+- Conexão SMTP reutilizada
+- Índices no PostgreSQL
+- Queries otimizadas
+
+### Monitoramento
+- Logs estruturados
+- Relatórios de envio
+- Métricas em tempo real
+
+---
+
+## 🔗 Referências
+
+- [docs/prd.md](../docs/prd.md) - PRD completo
+- [README.md](../README.md) - Como usar
+- [src/email_sender/](../src/email_sender/) - Core
+
+---
+
+**Última Atualização:** November 6, 2025  
+**Status:** Production Ready ✅
 
 ---
 
