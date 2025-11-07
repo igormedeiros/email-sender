@@ -2,9 +2,34 @@
 
 Sistema robusto e production-ready para envio de emails em lote a partir de um banco de dados PostgreSQL. Projetado com princípios **KISS (Keep It Simple, Stupid)** para máxima clareza e manutenibilidade.
 
+**Status:** ✅ Production Ready | **Version:** 2.0 | **Last Updated:** November 7, 2025
+
+---
+
+## 📋 Índice
+
+1. [Quick Start](#-quick-start)
+2. [Funcionalidades](#-funcionalidades)
+3. [Instalação Detalhada](#-instalação-detalhada)
+4. [Uso e Comandos](#-uso-e-comandos)
+5. [Menu de Produção (Clear Flags)](#-menu-de-produção-clear-flags)
+6. [Configuração](#-configuração)
+7. [Arquitetura](#-arquitetura)
+8. [Proteção Contra Duplicatas](#-proteção-contra-duplicatas-4-níveis)
+9. [Relatórios](#-relatórios)
+10. [Performance](#-performance)
+11. [Segurança](#-segurança)
+12. [Banco de Dados](#-banco-de-dados)
+13. [Testes](#-testes)
+14. [Deployment](#-deployment)
+15. [Desenvolvimento](#-desenvolvimento)
+16. [Changelog](#-changelog)
+
+---
+
 ## 🚀 Quick Start
 
-### Instalação
+### Instalação Rápida
 
 ```bash
 # 1. Clone e configure
@@ -25,16 +50,6 @@ python -m email_sender.cli test-smtp
 uv run -m email_sender.cli
 ```
 
-### Primeiro Envio
-
-```bash
-# Menu interativo
-uv run -m email_sender.cli
-
-# Selecione a opção 1 para enviar emails
-# Escolha entre test (contatos com tag 'Test') ou production (todos)
-```
-
 ---
 
 ## 📋 Funcionalidades
@@ -47,19 +62,286 @@ uv run -m email_sender.cli
 - 🤖 **GenAI:** Geração automática de assuntos (Google Gemini)
 - 🔧 **Configuração Externa:** 100% YAML + .env (sem hardcoding)
 - ⚡ **Performance:** 1.000 emails em ~2 minutos
+- 🔄 **Menu de Produção:** Opção de limpar flags antes de reenviar
+- 📈 **Progress Tracking:** Percentual e ETA durante envio
+- 📁 **Relatórios em Arquivo:** Txt com lista de enviados/falhados
 
 ---
 
-## 📖 Documentação
+## 🔧 Instalação Detalhada
 
-- **[docs/prd.md](docs/prd.md)** - Especificação completa do produto
-- **[.github/copilot-instructions.md](.github/copilot-instructions.md)** - Padrões de desenvolvimento
+### Pré-requisitos
+
+- Python 3.12+
+- PostgreSQL 12+
+- uv (gerenciador de dependências): https://docs.astral.sh/uv/
+
+### Passo 1: Clonar e Configurar Ambiente
+
+```bash
+git clone <repository-url>
+cd treineinsite
+uv sync
+```
+
+### Passo 2: Copiar Arquivos de Exemplo
+
+```bash
+cp .env.example .env
+cp config/config.yaml.example config/config.yaml
+cp config/email.yaml.example config/email.yaml
+cp config/templates/email.html.example config/templates/email.html
+```
+
+### Passo 3: Configurar Credenciais (.env)
+
+```bash
+nano .env
+```
+
+Exemplo:
+```bash
+# Banco de Dados
+DB_HOST=easypanel.treineinsite.com.br
+DB_PORT=5432
+DB_USER=seu_usuario
+DB_PASSWORD=sua_senha_postgres
+DB_NAME=treineinsite
+
+# SMTP
+SMTP_USERNAME=seu_usuario_smtp
+SMTP_PASSWORD=sua_senha_smtp
+
+# GenAI (opcional)
+GENAI_API_KEY=sua_chave_google_gemini
+```
+
+### Passo 4: Configurar Aplicação (config.yaml)
+
+```yaml
+database:
+  host: easypanel.treineinsite.com.br
+  port: 5432
+  user: seu_usuario
+  password: ${DB_PASSWORD}
+  database: treineinsite
+
+smtp:
+  host: smtplw.com.br
+  port: 587
+  user: ${SMTP_USERNAME}
+  password: ${SMTP_PASSWORD}
+  use_tls: true
+  retry_attempts: 2
+  retry_delay: 5
+  send_timeout: 10
+
+email:
+  sender: "Treineinsite <contato@treineinsite.com>"
+  batch_size: 200
+  batch_delay: 5
+```
+
+### Passo 5: Configurar Conteúdo de Email (email.yaml)
+
+```yaml
+evento:
+  nome: "POWER TREINE (SP) - Proteção e Seletividade"
+  link: "https://www.sympla.com.br/evento/..."
+  data: "8 e 9 de novembro"
+  cidade: "São Paulo"
+  local: "Wyndham São Paulo Ibirapuera"
+  cupom: "BlackFriday"
+
+email:
+  subject: "🔥 BLACK FRIDAY: 50% OFF no Curso de Proteção..."
+  template_path: "config/templates/email.html"
+```
+
+### Passo 6: Testar Conexão
+
+```bash
+python -m email_sender.cli test-smtp
+```
+
+---
+
+## 💻 Uso e Comandos
+
+### Menu Interativo (Recomendado)
+
+```bash
+uv run -m email_sender.cli
+```
+
+**Opções:**
+```
+Treineinsite • Email Sender CLI
+
+1 - Enviar emails
+2 - Testar SMTP
+3 - Ver contatos
+4 - Importar contatos (CSV)
+5 - Sair
+```
+
+### Opção 1: Enviar Emails
+
+```
+Escolha: 1
+
+Modo de envio:
+1 - Teste (contatos com tag 'Test') [padrão]
+2 - ⚠️  Produção (TODOS os contatos)
+
+Escolha [1-2]: 1
+
+✓ Modo TESTE - contatos com tag 'Test'
+
+═══════════════════════════════════════════════
+📋 Dados do Email a Enviar
+═══════════════════════════════════════════════
+Assunto: 🔥 BLACK FRIDAY: 50% OFF...
+Evento: POWER TREINE (SP)
+Data: 8 e 9 de novembro
+Local: Wyndham São Paulo Ibirapuera
+Cupom: BlackFriday
+Modo: TESTE (tag 'Test')
+═══════════════════════════════════════════════
+
+Continuar com o envio? (s/n): s
+
+Iniciando envio de emails...
+📧 igor.medeiros@gmail.com
+✅ Email enviado para igor.medeiros@gmail.com
+
+Relatório salvo em: reports/email_report_20251107_094047.txt
+
+Resumo do Envio:
+┏━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Métrica          ┃ Valor ┃
+┡━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ Total processado │ 1     │
+│ Enviados         │ 1     │
+│ Falhas           │ 0     │
+└──────────────────┴───────┘
+```
+
+### Opção 2: Testar SMTP
+
+```
+Escolha: 2
+
+Testando conexão SMTP...
+✅ Conexão SMTP estabelecida com sucesso
+```
+
+### Opção 3: Ver Contatos
+
+```
+Escolha: 3
+
+Encontrados 14569 contatos elegíveis
+
+│ ID   │ Email                │
+├──────┼──────────────────────┤
+│ 123  │ usuario1@example.com │
+│ 124  │ usuario2@example.com │
+│ ... + 14569 mais
+```
+
+### Opção 4: Importar Contatos
+
+1. Crie arquivo `contacts.csv`:
+```csv
+email
+fulano@example.com
+beltrano@example.com
+```
+
+2. Escolha opção 4 no menu
+
+---
+
+## 🚀 Menu de Produção (Clear Flags)
+
+### O Problema
+
+Quando você quer **reenviar uma mesma mensagem** para a **mesma base de contatos**, o sistema tem proteção contra duplicatas. Portanto, precisa limpar os históricos antigos.
+
+### Como Funciona
+
+Ao escolher **Modo de Produção (opção 2)**, você vê um menu com 3 opções:
+
+```
+⚠️  MODO PRODUÇÃO - CUIDADO!
+
+Opções:
+1 - Enviar normalmente (sem limpar flags)
+2 - Limpar flags antes de enviar (reenviar para todos)
+3 - Cancelar
+
+Escolha [1-3]: 
+```
+
+### Opções Disponíveis
+
+| # | Opção | O que faz | Quando usar |
+|---|-------|----------|------------|
+| **1** | Enviar normalmente | Envia apenas para quem **NÃO recebeu** | ✅ Primeira vez |
+| **2** | Limpar flags | **DELETE** logs antigos + reenviar para **TODOS** | 🔄 Reenvio em massa |
+| **3** | Cancelar | Cancela sem fazer nada | ❌ Cancelar |
+
+### O que "Limpar Flags" faz
+
+```sql
+-- Deleta registros de envio anterior
+DELETE FROM tbl_message_logs 
+WHERE message_id = 1 AND event_type = 'sent';
+
+-- Marca mensagem como não processada (permite reenvio)
+UPDATE tbl_messages 
+SET processed = FALSE 
+WHERE id = 1;
+```
+
+### Exemplos de Uso
+
+#### ✅ Exemplo 1: Primeira vez enviando para produção
+```
+Escolha [1-3]: 1  # Enviar normalmente
+Tem certeza? Digite 'SIM' para confirmar: SIM
+```
+✅ Envia para quem ainda não recebeu
+
+#### 🔄 Exemplo 2: Reenviar para TODOS os contatos
+```
+Escolha [1-3]: 2  # Limpar flags
+Limpando flags de envio anteriores...
+✅ Flags limpos com sucesso!
+
+Tem certeza? Digite 'SIM' para confirmar: SIM
+```
+✅ Limpa histórico + envia para todos
+
+#### ❌ Exemplo 3: Cancelar operação
+```
+Escolha [1-3]: 3  # Cancelar
+Operação cancelada.
+```
+✅ Retorna ao menu
+
+### Importante
+
+- **Modo TESTE**: Permite reenvio **automaticamente** (sem menu de flags)
+- **Modo PRODUÇÃO**: Oferece escolha entre enviar normalmente, limpar flags, ou cancelar
+- **Confirmação obrigatória**: Requer digitar "SIM" para confirmar qualquer operação
 
 ---
 
 ## 🔧 Configuração
 
-### config.yaml
+### config.yaml (Operacional)
 
 ```yaml
 database:
@@ -74,90 +356,76 @@ smtp:
   port: 587
   user: ${SMTP_USERNAME}
   password: ${SMTP_PASSWORD}
+  use_tls: true
   retry_attempts: 2
   retry_delay: 5
+  send_timeout: 10
 
 email:
   sender: "Treineinsite <contato@treineinsite.com>"
   batch_size: 200
   batch_delay: 5
+  test_recipient: "test@example.com"
 ```
 
-### .env
+### .env (Credenciais - NÃO versionado)
 
 ```bash
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
 DB_PASSWORD=sua_senha_postgres
+DB_NAME=treineinsite
+
 SMTP_USERNAME=seu_usuario_smtp
 SMTP_PASSWORD=sua_senha_smtp
+
 GENAI_API_KEY=sua_chave_google_gemini
 ```
 
-### email.yaml
+### email.yaml (Conteúdo Dinâmico - NÃO versionado)
 
 ```yaml
 evento:
   nome: "Curso de Proteção"
   link: "https://exemplo.com/evento"
-  cupom: "BLACK30"
+  data: "15 e 16 de março"
+  cidade: "São Paulo"
+  local: "Local do Evento"
+  cupom: "PROMO30"
 
 email:
   subject: "🔥 30% OFF - Curso de Proteção em São Paulo"
-```
+  template_path: "config/templates/email.html"
 
----
-
-## 💻 Interface CLI
-
-### Menu Interativo
-
-```
-Treineinsite • Email Sender CLI
-
-1 - Enviar emails
-2 - Testar SMTP
-3 - Ver contatos
-4 - Importar contatos (CSV)
-5 - Sair
-```
-
-### Comandos Diretos
-
-```bash
-# Testar conexão SMTP
-python -m email_sender.cli test-smtp
-
-# Enviar emails (com menu)
-uv run -m email_sender.cli
-```
-
----
-
-## 📊 Relatórios
-
-Os relatórios são gerados automaticamente em `reports/email_report_YYYYMMDD_HHMMSS.txt`
-
-Exemplo:
-
-```
-Total de registros: 2
-Enviados com sucesso: 2
-Falhas: 0
-Tempo total: 1.3 segundos
-Taxa de sucesso: 100.0%
+promocao:
+  desconto: "30%"
 ```
 
 ---
 
 ## 🏗️ Arquitetura
 
+### Stack Tecnológico
+
+| Componente | Tecnologia | Propósito |
+|-----------|-----------|----------|
+| Linguagem | Python 3.12+ | Core do sistema |
+| CLI | Typer + Rich | Interface de linha de comando |
+| Banco | PostgreSQL + psycopg | Persistência e lógica |
+| SMTP | smtplib (stdlib) | Envio de emails |
+| IA | Google Gemini | Geração de assuntos |
+| Config | YAML + .env | Configuração externa |
+| Build | uv | Gerenciador de dependências |
+
 ### Componentes Principais
 
-- **cli.py** - Interface de linha de comando (Typer)
+- **cli.py** - Interface CLI com menu interativo
 - **email_service.py** - Lógica central de envio + deduplicação (4 níveis)
 - **smtp_manager.py** - Gerenciador de conexões SMTP com retry
 - **db.py** - Camada de acesso a PostgreSQL
 - **config.py** - Gerenciador de configurações YAML + .env
-- **utils/ui.py** - Componentes de UI (Rich)
+- **utils/ui.py** - Componentes de UI com Rich
 
 ### Estrutura de Arquivos
 
@@ -179,59 +447,134 @@ config/                 # Configuração
 
 sql/                    # Queries
 ├── contacts/
+│   ├── select_recipients_for_message.sql
+│   └── check_contact_exclusions.sql
 ├── messages/
-├── events/
-└── tags/
+│   ├── check_message_sent.sql
+│   ├── insert_message_sent_log.sql
+│   └── create_message.sql
 
 tests/                  # Testes
+├── conftest.py
 └── unit/
+    ├── test_email_service.py
+    ├── test_smtp_manager.py
+    ├── test_db.py
+    └── test_config.py
 
-docs/
-└── prd.md
+reports/                # Relatórios gerados
 ```
 
 ---
 
-## 🗄️ Banco de Dados
+## 🛡️ Proteção Contra Duplicatas (4 Níveis)
 
-### Tabelas Principais
+O sistema implementa 4 camadas de proteção para evitar envio duplicado:
 
-- `tbl_contacts` - Contatos (id, email, unsubscribed)
-- `tbl_contact_tags` - Tags por contato (N:N)
-- `tbl_messages` - Mensagens (subject, html_body)
-- `tbl_message_logs` - Logs de envio (contact_id, message_id, status)
-- `tbl_tags` - Disponíveis (bounce, invalid, unsubscribed, etc)
+### 1️⃣ Nível 1: Memória (Sessão Atual)
 
-### Filtros Automáticos
+```python
+self._sent_contacts = set()
 
-- ✅ Contatos com tag `unsubscribed` = ignorados
-- ✅ Contatos com tag `bounce` = ignorados
-- ✅ Contatos com tag `invalid` = ignorados
-- ✅ Modo `test` = apenas contatos com tag `Test`
-- ✅ Modo `production` = todos os contatos elegíveis
+if contact_id in self._sent_contacts:
+    continue  # Já enviado nesta sessão
+```
+
+**Quando:** Durante o envio
+**Cobertura:** Toda a sessão do programa
+
+### 2️⃣ Nível 2: Dict (Contagem por Mensagem)
+
+```python
+if contact_id in sent_dict:
+    sent_dict[contact_id] += 1
+    if sent_dict[contact_id] > 1:
+        continue  # Duplicado detectado
+```
+
+**Quando:** Durante iteração
+**Cobertura:** Por mensagem
+
+### 3️⃣ Nível 3: Banco de Dados
+
+```sql
+SELECT id FROM tbl_message_logs
+WHERE contact_id = 8878 
+  AND message_id = 1 
+  AND event_type = 'sent'
+```
+
+**Quando:** Antes de enviar (APENAS PRODUÇÃO)
+**Cobertura:** Histórico completo
+
+### 4️⃣ Nível 4: Tags de Exclusão
+
+```sql
+SELECT contact_id FROM tbl_contact_tags ctg
+INNER JOIN tbl_tags tg ON ctg.tag_id = tg.id
+WHERE LOWER(tg.tag_name) IN (
+  'unsubscribed', 'bounce', 'invalid', 'problem'
+)
+```
+
+**Quando:** Ao carregar contatos
+**Cobertura:** Todas as execuções
+
+### 📊 Resumo
+
+| Nível | Tipo | Modo Prod | Modo Teste |
+|-------|------|----------|-----------|
+| 1 | Memória | ✅ Ativo | ✅ Ativo |
+| 2 | Dict | ✅ Ativo | ✅ Ativo |
+| 3 | BD | ✅ Ativo | ❌ Bypass |
+| 4 | Tags | ✅ Ativo | ✅ Ativo |
 
 ---
 
-## 🧪 Testes
+## 📊 Relatórios
 
-### Executar Todos
+### Formato do Arquivo
 
-```bash
-uv run pytest
+Gerados automaticamente em `reports/email_report_YYYYMMDD_HHMMSS.txt`
+
+**Exemplo:**
+```
+================================================================================
+RELATÓRIO DE ENVIO DE EMAILS
+================================================================================
+
+Data/Hora: 07/11/2025 09:40:47
+Tempo total: 0.2s
+
+Resumo:
+  Total processado: 1
+  Enviados com sucesso: 1
+  Falhas: 0
+  Taxa de sucesso: 100.0%
+
+================================================================================
+EMAILS ENVIADOS COM SUCESSO
+================================================================================
+  ✓ igor.medeiros@gmail.com
+
+================================================================================
+EMAILS COM FALHA
+================================================================================
+  Nenhuma falha.
+
+================================================================================
 ```
 
-### Com Cobertura
+### Conteúdo
 
-```bash
-uv run pytest --cov=src/email_sender --cov-report=html
-```
-
-### Testes Críticos
-
-```bash
-uv run pytest tests/unit/test_email_service.py -v
-uv run pytest tests/unit/test_smtp_manager.py -v
-```
+- Data e hora do envio
+- Tempo total de execução
+- Total de contatos processados
+- Enviados com sucesso
+- Falhas registradas
+- Taxa de sucesso percentual
+- Lista completa de emails enviados
+- Lista completa de emails com falha
 
 ---
 
@@ -244,6 +587,16 @@ uv run pytest tests/unit/test_smtp_manager.py -v
 | 10.000 emails | ~20 minutos |
 | Memória (1000 emails) | ~50MB |
 | Startup time | <1s |
+| Conexão SMTP | Reutilizada |
+
+### Otimizações
+
+- ✅ Reuso de conexão SMTP
+- ✅ Batch processing (200 emails/lote)
+- ✅ Índices no PostgreSQL
+- ✅ Queries otimizadas
+- ✅ Logging minimalista (INFO)
+- ✅ Progress tracking com ETA
 
 ---
 
@@ -260,24 +613,86 @@ uv run pytest tests/unit/test_smtp_manager.py -v
 
 - ✅ 4 níveis de proteção contra duplicatas
 - ✅ Autocommit no PostgreSQL
-- ✅ Tratamento de exceções com rollback
-- ✅ Logs detalhados de falhas
+- ✅ Tratamento de exceções
+- ✅ Logs detalhados
+- ✅ Rastreamento de estado
+
+### .gitignore
+
+```
+.env
+config/config.yaml
+config/email.yaml
+config/templates/email.html
+reports/
+*.log
+__pycache__/
+.pytest_cache/
+```
+
+---
+
+## 🗄️ Banco de Dados
+
+### Tabelas Principais
+
+- **tbl_contacts** - Contatos (id, email, unsubscribed, is_buyer)
+- **tbl_contact_tags** - Tags por contato (N:N)
+- **tbl_messages** - Mensagens (subject, html_body, processed)
+- **tbl_message_logs** - Logs de envio (contact_id, message_id, event_type)
+- **tbl_tags** - Tags disponíveis
+
+### Tags de Exclusão
+
+- `unsubscribed` - Descadastrados
+- `bounce` - Emails que retornaram
+- `invalid` - Emails inválidos
+- `problem` - Contatos com problemas de envio
+- `Test` - Contatos de teste (só aparecem em modo teste)
+
+### Filtros Automáticos
+
+- ✅ Tag `unsubscribed` = ignorado
+- ✅ Tag `bounce` = ignorado
+- ✅ Tag `invalid` = ignorado
+- ✅ Tag `problem` = ignorado
+- ✅ Modo `test` = apenas tag `Test`
+- ✅ Modo `production` = todos elegíveis
+
+---
+
+## 🧪 Testes
+
+### Executar
+
+```bash
+# Todos os testes
+uv run pytest
+
+# Com cobertura
+uv run pytest --cov=src/email_sender --cov-report=html
+
+# Testes específicos
+uv run pytest tests/unit/test_email_service.py -v
+uv run pytest tests/unit/test_smtp_manager.py -v
+```
+
+### Requisitos
+
+- Mínimo 85% cobertura
+- Sem acesso à rede (mocks)
+- Fixtures em `conftest.py`
+- Testes isolados
 
 ---
 
 ## 🚀 Deployment
 
-### Pré-requisitos
-
-- Python 3.12+
-- PostgreSQL 12+
-- uv (gerenciador de dependências)
-
 ### Em VPS 24/7
 
-```bash
-# Crie arquivo: /etc/systemd/system/email-sender.service
+Crie arquivo: `/etc/systemd/system/email-sender.service`
 
+```ini
 [Unit]
 Description=Treineinsite Email Sender
 After=network.target
@@ -294,9 +709,16 @@ RestartSec=60
 WantedBy=multi-user.target
 ```
 
+Ativar:
+```bash
+sudo systemctl enable email-sender
+sudo systemctl start email-sender
+sudo systemctl status email-sender
+```
+
 ---
 
-## 📚 Desenvolvimento
+## 🔧 Desenvolvimento
 
 ### Princípios KISS
 
@@ -309,11 +731,10 @@ WantedBy=multi-user.target
 ### Estrutura de Código
 
 ```python
-# Imports corretos
+# ✅ Correto
 from email_sender.config import Config
 from email_sender.email_service import EmailService
 
-# Classe com uma responsabilidade
 class EmailService:
     def __init__(self, config: Config, db: Database, smtp: SmtpManager):
         self.config = config
@@ -322,7 +743,7 @@ class EmailService:
     
     def send_batch(self, message_id: int) -> dict:
         """Enviar emails com 4 níveis de deduplicação."""
-        # Implementação limpa e direta
+        # Implementação limpa
 ```
 
 ### SQL em Arquivos
@@ -331,16 +752,32 @@ class EmailService:
 # ✅ Correto
 recipients = db.fetch_all("sql/contacts/select_recipients_for_message.sql", params)
 
-# ❌ Errado
+# ❌ Errado (evitar)
 recipients = db.fetch_all("""SELECT ... FROM tbl_contacts WHERE ...""", params)
 ```
 
 ---
 
-## 🔗 Referências
+## 📝 Changelog
 
-- **[docs/prd.md](docs/prd.md)** - PRD completo do sistema
-- **[.github/copilot-instructions.md](.github/copilot-instructions.md)** - Padrões de desenvolvimento
+### v2.0.2 - November 7, 2025
+
+**🎯 Features Implementadas:**
+- ✅ Menu de produção com opções de clear-flags
+- ✅ Progress tracking com ETA
+- ✅ Relatórios em arquivo (txt)
+- ✅ Logging minimalista
+- ✅ Consolidação de documentação no README
+
+**🐛 Bugs Corrigidos:**
+- ✅ Inverted deduplication logic (test mode)
+- ✅ db.disconnect() → db.close()
+- ✅ SQL recipients query (AND/OR precedence)
+
+**🚀 Performance:**
+- ✅ SMTP connection reuse (3-6x faster)
+- ✅ Placeholder substitution
+- ✅ Optimized batch processing
 
 ---
 
@@ -348,798 +785,11 @@ recipients = db.fetch_all("""SELECT ... FROM tbl_contacts WHERE ...""", params)
 
 Para dúvidas ou problemas:
 
-1. Consulte `docs/prd.md` para visão geral
-2. Veja `.github/copilot-instructions.md` para padrões
-3. Revise `src/email_sender/` para entender o código
-4. Execute testes: `uv run pytest -v`
+1. Consulte a documentação acima
+2. Revise `src/email_sender/` para entender o código
+3. Execute testes: `uv run pytest -v`
+4. Verifique logs: `tail -f reports/email_report_*.txt`
 
 ---
 
-## ✅ Status
-
-- **Version:** 2.0
-- **Status:** Production Ready ✅
-- **Last Updated:** November 6, 2025
-- **Princípio:** KISS + Clean Code
-
-## 🔧 Changelog (Últimas Alterações)
-
-### v2.0.1 - November 6, 2025
-
-**🐛 Bug Fix: SQL Recipients Query - Precedência de Operadores**
-- **Problema:** `select_recipients_for_message.sql` retornava 18.372 contatos em TESTE mode (esperado: 1)
-- **Causa:** Precedência de operadores SQL (AND/OR) - linha 42 faltava parênteses
-- **Solução:** Adicionado parênteses explícitos ao redor de `(NOT IN (...) OR $1 = TRUE)`
-- **Impacto:** 
-  - Contatos TESTE: 18.372 → 1 ✅
-  - Performance: 4-5h → <1s ✅
-  - Economia: ~18K emails não enviados indesejadamente ✅
-- **Validação:** ✅ CLI testado, ✅ Deduplicação funciona, ✅ Message state persiste
-- **Docs:** Ver `docs/bug_fix_sql_recipients_2025_11_06.md` para análise completa
-
-## 🚀 Recursos
-
-- ✉️ Envio de emails em lote a partir do banco de dados PostgreSQL
-- 🔄 Backup automático e restauração em caso de falhas
-- 📊 Relatórios detalhados de envio
-- ⏱️ Controle de taxa de envio e intervalos entre lotes
-- 🔁 Sistema de retentativas automáticas
-- 💾 Salvamento periódico do progresso
-- 🛡️ Tratamento seguro de interrupções
-- 📝 Suporte a templates de email personalizáveis
-- 🚫 Gerenciamento automático de descadastros (unsubscribe)
-- 🚫 Gerenciamento de emails com bounce
-- 🔧 Configuração 100% externa via arquivos YAML (sem valores hardcoded)
-- 🌐 API REST para todas as funcionalidades
-- 🔌 Arquitetura desacoplada com controllers e service
-- ⏯️ Retomada automática de processos interrompidos
-
-## 🛠️ Requisitos
-
-- Python 3.12+
-- uv (gerenciador de dependências rápido)
-  - Instalação: veja as instruções em `https://docs.astral.sh/uv/` (Linux/Mac/Windows)
-- Acesso a um servidor SMTP
-
-## 🚀 Como usar (rápido)
-
-- Interativo (recomendado):
-  ```bash
-  uv run treineinsite-sendemails
-  ```
-  - Setas para navegar; Enter para selecionar; TAB alterna `ENVIRONMENT` entre `test` e `production`.
-  - Se o prompt/lista ficarem "colados" em uma linha, rode sem buffer:
-    ```bash
-    uv run -u treineinsite-sendemails
-    # ou
-    PYTHONUNBUFFERED=1 uv run treineinsite-sendemails
-    ```
-
-- Enviar emails sem menu (modo avançado):
-  ```bash
-  uv run python -m email_sender.controller_cli send-emails --mode=test --content config/email.yaml
-  uv run python -m email_sender.controller_cli send-emails --mode=production --content config/email.yaml
-  ```
-
-- Iniciar API REST:
-  ```bash
-  uv run python -m email_sender.rest_api
-  ```
-
-## ⚙️ Instalação (com uv)
-
-1. Clone o repositório:
-
-   ```bash
-   git clone <repository-url>
-   cd email-sender
-   ```
-
-2. Sincronize dependências com uv (cria o ambiente automaticamente):
-
-   ```bash
-   uv sync
-   ```
-
-3. Execute a CLI (exemplos):
-
-   ```bash
-   # Modo interativo (menu)
-   uv run treineinsite-sendemails
-
-   # Modo não interativo (Typer)
-   uv run python -m email_sender.controller_cli send-emails --mode=test --content config/email.yaml
-   ```
-
-## 📝 Configuração
-
-> ℹ️ **Importante**: O sistema utiliza exclusivamente arquivos YAML para todas as configurações. Nenhuma configuração é hardcoded no código fonte.
-
-1. O sistema utiliza arquivos YAML para configuração e um arquivo .env para credenciais. Os arquivos originais não estão versionados, então você precisará criar cópias dos exemplos:
-
-```bash
-# Copie os arquivos de exemplo para os nomes corretos
-cp example_config.yaml config/config.yaml
-cp example_email.yaml config/email.yaml
-cp config/rest.yaml.example config/rest.yaml
-cp config/api-docs.yaml.example config/api-docs.yaml
-cp templates/email.html.example templates/email.html
-cp .env.example .env
-
-# Edite as credenciais
-nano .env  # Coloque suas credenciais SMTP
-```
-
-2. Configure as opções no arquivo `config/config.yaml`:
-
-| Seção | Chave          | Descrição                         | Exemplo        |
-| ----- | -------------- | --------------------------------- | -------------- |
-| smtp  | host           | Servidor SMTP                     | smtp.gmail.com |
-| smtp  | port           | Porta SMTP                        | 587            |
-| smtp  | use_tls        | Usar TLS                          | true           |
-| smtp  | retry_attempts | Número de tentativas              | 3              |
-| smtp  | retry_delay    | Delay entre tentativas (segundos) | 5              |
-| smtp  | send_timeout   | Timeout de envio (segundos)       | 10             |
-
-3. Configure as credenciais SMTP no arquivo `.env`:
-
-| Variável             | Descrição                           | Exemplo       |
-| -------------------- | ----------------------------------- | ------------- |
-| SMTP_USERNAME        | Usuário SMTP                        | seu@email.com |
-| SMTP_PASSWORD        | Senha SMTP                          | sua_senha     |
-| SUBJECT_INTERACTIVE  | Ativa aprovação interativa de assunto | 1 (ativado)   |
-
-4. Outras configurações disponíveis no arquivo `config/config.yaml`:
-
-| Seção | Chave            | Descrição                    | Exemplo                    |
-| ----- | ---------------- | ---------------------------- | -------------------------- |
-| email | sender           | Nome e email do remetente    | Seu Nome \<seu@email.com\> |
-| email | batch_size       | Tamanho do lote              | 200                        |
-| email | test_recipient   | Email para teste             | test@example.com           |
-| email | batch_delay      | Delay entre lotes (segundos) | 5                          |
-
-5. Configurações de SMTP para retentativas
-
-| Seção | Chave            | Descrição                           | Exemplo |
-| ----- | ---------------- | ----------------------------------- | ------- |
-| smtp  | retry_attempts   | Número máximo de tentativas         | 3       |
-| smtp  | retry_delay      | Delay entre tentativas (segundos)   | 5       |
-| smtp  | send_timeout     | Timeout de envio (segundos)         | 10      |
-
-**Importante**: O sistema limita o número de retentativas a 2 tentativas máximas para falhas de conexão e marca contatos com problemas de envio com a tag 'problem' para evitar reenvios futuros. O tempo de espera entre retentativas é otimizado para reduzir o tempo total de envio.
-
-6. Aprovação interativa de assunto
-
-Ao enviar emails (toda a base), o sistema gera automaticamente um assunto para os emails. Com a variável `SUBJECT_INTERACTIVE=1` configurada no arquivo `.env`, o sistema solicitará a aprovação do assunto gerado antes de iniciar o envio.
-
-Caso o usuário não aprove o assunto, o sistema irá gerar uma nova variação (até 2 tentativas adicionais) e solicitar novamente a aprovação. Isso permite garantir que o assunto dos emails seja apropriado antes do envio em lote.
-
-7. Conteúdo dinâmico para os templates em `config/email.yaml`:
-
-O arquivo `config/email.yaml` contém variáveis que serão substituídas no template HTML. Exemplo:
-
-```yaml
-# Conteúdo dinâmico para os templates de email
-# -----------------------------------------------------
-
-# Informações do evento
-# ---------------------
-evento:
-  link: "https://exemplo.com/evento"
-  data: "15 e 16 de março"
-  cidade: "Sua Cidade"
-  local: "Nome do Local, Sua Cidade - UF"
-  horario: "9h às 18h (ambos os dias)"
-
-# Promoções e ofertas
-# -------------------
-promocao:
-  desconto: "30%"
-
-# Configurações de email
-# ---------------------
-email:
-  subject: "Aprenda Proteção e Seletividade" # Assunto padrão para os emails
-
-# URLs de gerenciamento de inscrição
-# ---------------------------------
-urls:
-  unsubscribe: "https://seu-site.com/unsubscribe" # URL para descadastro
-  subscribe: "https://seu-site.com/resubscribe" # URL para recadastro
-```
-
-
-
-7. Configuração da API REST em `config/rest.yaml`:
-
-| Seção         | Chave                                     | Descrição                   | Padrão               |
-| ------------- | ----------------------------------------- | --------------------------- | -------------------- |
-| server        | host                                      | Host para o servidor        | 0.0.0.0              |
-| server        | port                                      | Porta HTTP                  | 5000                 |
-| server        | debug                                     | Modo debug                  | true                 |
-| security      | enable_cors                               | Habilitar CORS              | true                 |
-| security      | allowed_origins                           | Origens permitidas          | \*                   |
-| security      | rate_limiting.enabled                     | Habilitar rate limiting     | true                 |
-| security      | rate_limiting.requests_per_minute         | Requisições por minuto      | 60                   |
-| logging       | level                                     | Nível de log                | INFO                 |
-| logging       | file                                      | Arquivo de log              | (vazio)              |
-| timeout       | request                                   | Timeout (segundos)          | 60                   |
-| endpoints     | [categoria].enabled                       | Habilitar categoria         | true                 |
-| endpoints     | [categoria].base_path                     | Caminho base para categoria | /api/...             |
-| endpoints     | [categoria].operations.[operação].enabled | Habilitar operação          | true                 |
-| endpoints     | [categoria].operations.[operação].path    | Caminho da operação         | /...                 |
-| endpoints     | [categoria].operations.[operação].methods | Métodos HTTP permitidos     | [GET/POST/etc]       |
-| documentation | enabled                                   | Habilitar documentação      | true                 |
-| documentation | path                                      | Caminho da documentação     | /api/docs            |
-| documentation | openapi_file                              | Arquivo OpenAPI             | config/api-docs.yaml |
-
-8. Documentação da API em `config/api-docs.yaml`:
-
-Este arquivo contém a especificação OpenAPI/Swagger da API, incluindo:
-
-- Definições de endpoints (paths)
-- Parâmetros de entrada
-- Esquemas de dados
-- Respostas possíveis
-- Exemplos
-
-A documentação segue o formato [OpenAPI 3.0](https://swagger.io/specification/) e pode ser visualizada em `/api/docs` quando a API está em execução.
-
-9. Inicialização do Banco de Dados:
-
-O sistema requer a criação da tabela `tbl_send_state` para rastrear o estado dos envios e permitir a retomada de processos interrompidos. Para inicializar o banco de dados, execute:
-
-```bash
-python3 scripts/init_db.py
-```
-
-Este script criará a tabela `tbl_send_state` no banco de dados PostgreSQL configurado nas variáveis de ambiente.
-
-## 🎯 Uso
-
-O sistema pode ser utilizado de duas formas: através da interface de linha de comando (CLI) ou via API REST.
-
-### Interface de Linha de Comando (CLI)
-
-A CLI oferece acesso a todas as funcionalidades principais do sistema através de comandos no terminal.
-
-#### Testar Configuração SMTP
-
-Verifica se as configurações SMTP estão corretas enviando um email de teste:
-
-```bash
-email-sender test-smtp [--config config/config.yaml] [--content config/email.yaml]
-# Alternativa sem entrypoint
-python -m email_sender.controller_cli test-smtp [--config config/config.yaml] [--content config/email.yaml]
-```
-
-Parâmetros opcionais:
-
-- `--config, -c`: Caminho para o arquivo de configuração (padrão: config/config.yaml)
-- `--content`: Caminho para o arquivo de conteúdo de email (padrão: config/email.yaml)
-
-Resposta esperada:
-
-```
-📧 test@example.com
-✅ test@example.com
-```
-
-#### Enviar Emails
-
-Antes de enviar emails, certifique-se de que o banco de dados foi inicializado corretamente executando o script `scripts/init_db.py`. Isso criará a tabela `tbl_send_state` necessária para rastrear o estado dos envios e permitir a retomada de processos interrompidos.
-
-Envie emails usando um template e planilha, especificando obrigatoriamente o modo de envio:
-
-```bash
-# Modo de teste (lê o caminho do template de config/email.yaml -> email.template_path)
-email-sender send-emails --mode=test
-
-# Modo de produção
-email-sender send-emails --mode=production
-
-# Ignorando sincronização de descadastros e bounces
-email-sender send-emails --mode=production --skip-sync
-
-# Alternativa sem entrypoint
-python -m email_sender.controller_cli send-emails --mode=test
-```
-
-Este comando sincroniza automaticamente a lista de descadastros e bounces (a menos que `--skip-sync` seja usado) antes de iniciar o envio, garantindo que emails descadastrados ou com bounce não recebam mensagens.
-
-> **⚠️ Segurança:** É obrigatório especificar o modo de envio:
->
-> - `--mode=test`: Usa a lista de emails de teste do banco de dados para testes seguros
-> - `--mode=production`: Usa a lista completa de emails do banco de dados para envios reais
->
-> Não é possível executar o comando sem especificar um destes modos, evitando envios acidentais.
-
-#### Análise de Relatórios de Envio
-
-O sistema inclui ferramentas para análise de relatórios de envio e identificação de contatos com problemas persistentes:
-
-```bash
-# Analisar emails com falhas repetidas
-python scripts/analyze_failed_emails.py
-
-# Verificar contatos marcados como problemáticos
-python scripts/check_problematic_contacts.py
-
-# Remover a tag 'problem' de um contato específico
-python scripts/remove_problem_tag.py <contact_id>
-```
-
-Essas ferramentas ajudam a manter a qualidade da base de contatos identificando e marcando automaticamente emails que apresentam problemas persistentes de envio.
-
-Parâmetros:
-
-- `template`: Nome ou caminho do template HTML a ser usado (obrigatório)
-
-- `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
-- `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
-- `--skip-sync`: Ignora a sincronização da lista de descadastros e bounces antes do envio
-- `--mode`: **Obrigatório**: especifique o modo de envio (`test` ou `production`)
-
-
-```
-📧 usuario1@example.com
-✅ usuario1@example.com
-📧 usuario2@example.com
-✅ usuario2@example.com
-...
-
-Progresso: 50/100 emails processados (50.0%)
-
-Resumo do lote atual:
-✓ Enviados neste lote: 48
-✗ Falhas neste lote: 2
-Taxa de sucesso do lote: 96.0%
-
-Resumo geral:
-✓ Total enviados: 98
-✗ Total falhas: 2
-Taxa de sucesso geral: 98.0%
-Faltam: 0 emails
-```
-
-#### Sincronizar Lista de Descadastros
-
-Sincroniza manualmente a lista de descadastros com o arquivo principal de emails:
-
-```bash
-email-sender sync-unsubscribed-command
-```
-
-Este comando atualiza a coluna `descadastro` no arquivo principal com base na lista de emails descadastrados. É executado automaticamente antes de cada envio, mas pode ser executado manualmente quando necessário. Ele marcará com "S" os emails que constam na lista de descadastros.
-
-Parâmetros opcionais:
-
-- `--unsubscribe-file`: Caminho para o arquivo de descadastros (usa o da configuração se omitido)
-- `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
-- `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
-
-Além disso, se existirem emails na lista de descadastros que não estão presentes na lista principal de emails, o comando adicionará esses emails à lista principal com a flag `descadastro` já marcada como "S". Isso garante que todos os emails descadastrados estejam sempre registrados na lista principal.
-
-#### Sincronizar Lista de Bounces
-
-Sincroniza manualmente a lista de emails de bounce com o arquivo principal de emails:
-
-```bash
-email-sender sync-bounces-command
-```
-
-Este comando atualiza a coluna `bounce` no arquivo principal com base na lista de emails de bounce. Ele marcará com "S" os emails que constam na lista de bounces. É executado automaticamente antes de cada envio de produção (a menos que `--skip-sync` seja usado), mas pode ser executado manualmente.
-
-Parâmetros opcionais:
-
-- `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
-- `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
-
-#### Limpar Flags de Envio
-
-Reseta o status de todos os emails na planilha, permitindo o reenvio para todos os contatos:
-
-```bash
-email-sender clear-sent-flags
-```
-
-Parâmetros opcionais:
-
-- `--config, -c`: Arquivo de configuração (padrão: config/config.yaml)
-- `--content`: Arquivo de conteúdo dinâmico (padrão: config/email.yaml)
-
-Este comando limpa as colunas `enviado` e `falhou` do banco de dados, permitindo que emails já enviados ou que falharam anteriormente sejam processados novamente no próximo envio.
-
-#### Importar Contatos de CSV
-
-Para importar uma lista de contatos em massa, siga os passos:
-
-1.  Crie um arquivo chamado `contacts.csv` na raiz do projeto.
-2.  O arquivo deve conter uma única coluna com o cabeçalho `email`.
-
-**Exemplo de `contacts.csv`:**
-
-```csv
-email
-fulano@example.com
-beltrano@example.com
-ciclano@example.com
-```
-
-3.  Execute a aplicação no modo interativo e selecione a opção **"Importar contatos (contacts.csv)"** no menu.
-
-O sistema irá ler o arquivo, ignorar duplicatas e inserir os novos contatos no banco de dados, deixando-os prontos para receber campanhas.
-
-#### Remover Duplicados
-
-Remove linhas duplicadas da base de dados PostgreSQL baseado em uma coluna específica (por padrão, a coluna 'email'):
-
-```bash
-# Remoção básica (usa coluna 'email' e mantém a primeira ocorrência)
-email-sender remove-duplicates
-
-# Especificando a coluna para verificar duplicados
-email-sender remove-duplicates --column nome
-
-# Escolhendo qual ocorrência manter (primeira ou última)
-email-sender remove-duplicates --keep last
-
-# Salvando em um novo arquivo em vez de substituir o original
-```
-
-Este comando analisa a base de dados, identifica duplicatas com base na coluna especificada, e mantém apenas uma ocorrência de cada valor único.
-
-Parâmetros:
-
-- `--column, -c`: Coluna a ser usada para identificar duplicados (padrão: "email")
-- `--keep, -k`: Qual ocorrência manter ("first" ou "last", padrão: "first")
-- `--output, -o`: Arquivo de saída (se não especificado, substitui o original)
-- `--config`: Caminho para o arquivo de configuração (padrão: config/config.yaml)
-
-### API REST
-
-O sistema disponibiliza uma API REST para acessar todas as funcionalidades através de requisições HTTP, ideal para integração com outras aplicações.
-
-#### Iniciar a API REST
-
-```bash
-python -m email_sender.rest_api
-```
-
-A API será iniciada conforme as configurações definidas em `config/rest.yaml`. Por padrão, estará disponível em `http://localhost:5000`.
-
-Saída esperada:
-
-```
-⚡ Iniciando API REST em http://0.0.0.0:5000
-📝 Documentação disponível em http://0.0.0.0:5000/api/docs
-```
-
-#### Configuração da API
-
-A API REST pode ser configurada através do arquivo `config/rest.yaml`, permitindo personalizar:
-
-- Host e porta do servidor
-- Modo de depuração
-- Configurações de CORS (Cross-Origin Resource Sharing)
-- Nível e destino dos logs
-- Timeout para requisições
-- Habilitação/desabilitação de endpoints específicos
-- Configurações de segurança e rate limiting
-- Documentação da API
-
-Veja a [seção de configuração](#configuração) para detalhes sobre as opções disponíveis.
-
-#### Estrutura da API baseada em YAML
-
-A API é completamente configurável através de definições em arquivos YAML:
-
-1. **Configuração de Servidor e Segurança**: `config/rest.yaml`
-
-   - Configurações técnicas: host, porta, timeouts, CORS, rate limiting
-   - Habilitação/desabilitação de endpoints
-   - Definição de caminhos (paths) para os endpoints
-
-2. **Documentação e Schemas da API**: `config/api-docs.yaml`
-   - Definição de endpoints no formato OpenAPI/Swagger
-   - Schemas de validação para entrada/saída
-   - Documentação de respostas e códigos de erro
-
-Esta estrutura permite:
-
-- Modificar endpoints sem alterar código
-- Habilitar/desabilitar recursos específicos
-- Ajustar parâmetros de segurança
-- Gerar documentação automática
-
-#### Documentação Interativa da API
-
-A documentação interativa da API pode ser acessada em `/api/docs` quando a API está em execução:
-
-```
-http://localhost:5000/api/docs
-```
-
-Esta interface permite explorar todos os endpoints disponíveis, seus parâmetros e até mesmo testar as chamadas diretamente do navegador.
-
-#### Principais Endpoints
-
-| Endpoint                        | Método | Descrição                            |
-| ------------------------------- | ------ | ------------------------------------ |
-| `/api/health`                   | GET    | Verificar status do serviço          |
-| `/api/emails/send`              | POST   | Enviar emails em lote                |
-| `/api/emails/test-smtp`         | POST   | Testar conexão SMTP                  |
-| `/api/emails/clear-flags`       | POST   | Limpar flags de envio                |
-| `/api/emails/sync-unsubscribed` | POST   | Sincronizar lista de descadastros    |
-| `/api/emails/sync-bounces`      | POST   | Sincronizar lista de bounces         |
-| `/api/config`                   | GET    | Obter configurações atuais           |
-| `/api/config`                   | PUT    | Atualizar configurações              |
-| `/api/config/partial`           | PATCH  | Atualizar configurações parcialmente |
-
-Consulte a documentação OpenAPI completa em `/api/docs` para detalhes sobre parâmetros, respostas e exemplos de cada endpoint.
-
-## 📊 Estrutura dos Dados
-
-
-
-## 📈 Relatórios
-
-Os relatórios são gerados automaticamente na pasta `reports/` após cada execução, contendo:
-
-- Total de emails tentados
-- Quantidade de envios bem-sucedidos
-- Quantidade de falhas
-- Tempo total de execução
-- Tempo médio por email
-
-Exemplo de nome do arquivo: `email_report_20250212_172008.txt`
-
-## 🔒 Versionamento
-
-### ⚠️ Arquivos Excluídos do Versionamento
-
-Para garantir a segurança das informações, os seguintes tipos de arquivos são excluídos do versionamento Git:
-
-- **Credenciais**: arquivos `.env`, senhas e credenciais
-- **Configurações**: arquivos YAML na pasta `config/`
-- **Templates de Email**: arquivos HTML na pasta `templates/`
-- **Logs e Relatórios**: arquivos na pasta `reports/`
-
-### 📊 Análise de Relatórios de Envio
-
-O sistema inclui ferramentas para análise de relatórios de envio e identificação de contatos com problemas persistentes:
-
-1. **scripts/analyze_failed_emails.py**: Analisa relatórios de envio e gera listas de emails com falhas repetidas
-2. **scripts/check_problematic_contacts.py**: Verifica contatos marcados como problemáticos
-3. **scripts/remove_problem_tag.py**: Remove a tag 'problem' de um contato específico
-
-Essas ferramentas ajudam a manter a qualidade da base de contatos identificando e marcando automaticamente emails que apresentam problemas persistentes de envio.
-
-### 📝 Arquivos de Exemplo
-
-Para facilitar a configuração, o projeto inclui os seguintes arquivos de exemplo que são versionados:
-
-| Arquivo Original       | Arquivo de Exemplo             | Descrição                    |
-| ---------------------- | ------------------------------ | ---------------------------- |
-| `config/config.yaml`   | `example_config.yaml`          | Configurações do sistema     |
-| `config/email.yaml`    | `example_email.yaml`           | Conteúdo dinâmico de emails  |
-| `templates/email.html` | `templates/email.html.example` | Template de email            |
-| `.env`                 | `.env.example`                 | Credenciais SMTP             |
-
-## 🔧 Desenvolvimento
-
-### Princípios de Desenvolvimento
-
-1. **Configuração Externa**: Todas as configurações, URLs, credenciais e parâmetros operacionais devem ser definidos em arquivos YAML externos. Nunca hardcode valores no código.
-
-2. **Separação de Responsabilidades**:
-
-   - `config/config.yaml`: Configurações técnicas e operacionais
-   - `config/email.yaml`: Conteúdo dinâmico e texto para templates
-   - `.env`: Apenas credenciais sensíveis
-
-3. **Extensibilidade**: Novos parâmetros devem ser adicionados aos arquivos de configuração, não ao código.
-
-### Estrutura do Projeto
-
-```
-email-sender/
-├── config/              # Arquivos de configuração
-│   ├── config.yaml      # Configuração operacional
-│   ├── email.yaml       # Conteúdo dinâmico para templates
-│   ├── rest.yaml        # Configuração da API REST
-│   └── api-docs.yaml    # Documentação OpenAPI
-├── data/                # Arquivos de dados (não versionados)
-├── templates/           # Templates de email
-│   └── email.html       # Template padrão de email HTML
-├── logs/                # Logs da aplicação (não versionados)
-├── src/                 # Código fonte
-│   ├── api/                     # Nova estrutura de API REST
-│   │   ├── routes/              # Rotas organizadas por domínio
-│   │   │   ├── email_routes.py  # Endpoints para operações de email
-│   │   │   ├── config_routes.py # Endpoints para configurações
-│   │   │   └── docs_routes.py   # Endpoints para documentação
-│   │   ├── schemas/             # Validação e serialização
-│   │   │   └── models.py        # Modelos de dados para API
-│   │   ├── app.py               # Aplicação Flask principal
-│   │   └── utils.py             # Utilitários da API
-│   ├── utils/
-│   ├── cli.py                   # Ponto de entrada da CLI
-│   ├── controller_cli.py        # Controller para interface CLI
-│   ├── controller_rest.py       # Controller para compatibilidade
-│   ├── rest_api.py              # Ponto de entrada da API REST
-│   ├── config.py                # Gerenciamento de configuração
-│   ├── email_service.py         # Serviço de envio de emails
-│   └── unsubscribe_app.py       # App de descadastro/unsubscribe
-├── tests/               # Testes automatizados
-├── reports/             # Relatórios gerados (não versionados)
-├── example_config.yaml          # Exemplo de configuração
-├── example_email.yaml           # Exemplo de conteúdo de email
-├── config/rest.yaml.example     # Exemplo de configuração REST
-├── config/api-docs.yaml.example # Exemplo de documentação OpenAPI
-├── templates/email.html.example # Exemplo de template
-├── .env.example                 # Exemplo de credenciais
-└── setup.py             # Configuração do pacote
-```
-
-### Executando Testes
-
-Execute todos os testes:
-
-```bash
-pytest
-```
-
-Execute testes com cobertura:
-
-```bash
-pytest --cov=src
-```
-
-### Características de Segurança
-
-- ✅ Backup automático antes de modificar a planilha
-- ✅ Restauração automática em caso de falhas
-- ✅ Salvamento atômico usando arquivos temporários
-- ✅ Tratamento de sinais (SIGINT) para interrupção segura
-- ✅ Limpeza automática de arquivos temporários
-- ✅ Retentativas configuráveis para falhas de SMTP
-- ✅ Exclusão de dados sensíveis do versionamento
-- ✅ Configuração 100% externa (sem valores hardcoded)
-
-## Autenticação JWT
-
-O sistema implementa autenticação JWT (JSON Web Token) para proteger endpoints da API REST. A seguir, estão as informações sobre como usar a autenticação:
-
-### Configuração do JWT
-
-No arquivo `config/rest.yaml`:
-
-```yaml
-security:
-  jwt:
-    enabled: true
-    secret_key: "${JWT_SECRET_KEY}" # Use variável de ambiente para o segredo
-    token_expiry_hours: 24
-    refresh_token_expiry_hours: 168 # 7 dias
-```
-
-Certifique-se de definir a variável de ambiente JWT_SECRET_KEY com um valor forte e seguro:
-
-```bash
-# No Linux/Mac:
-export JWT_SECRET_KEY="seu_segredo_muito_seguro_e_longo"
-
-# No Windows:
-set JWT_SECRET_KEY=seu_segredo_muito_seguro_e_longo
-
-# Ou adicione no arquivo .env:
-JWT_SECRET_KEY=seu_segredo_muito_seguro_e_longo
-```
-
-> ⚠️ **IMPORTANTE**: Utilize um segredo forte e único para o JWT. O segredo deve ter pelo menos 32 caracteres e conter letras, números e símbolos para garantir segurança adequada.
-
-## Padrões de Projeto e Práticas de Desenvolvimento
-
-### Princípios de Desenvolvimento
-
-O sistema segue os seguintes princípios de desenvolvimento:
-
-1. **Clean Code**: Código claro, legível e autoexplicativo
-2. **KISS (Keep It Simple, Stupid)**: Manter o código minimalista, evitando complexidade desnecessária
-3. **DRY (Don't Repeat Yourself)**: Evitar duplicação de código através de reutilização
-4. **Separação de Responsabilidades**: Cada módulo tem uma única responsabilidade bem definida
-5. **Orientação a Objeto Moderada**: Aplicada de forma equilibrada sem aumentar complexidade
-
-### Estrutura do Projeto
-
-- Todos os arquivos de código Python (.py) estão dentro dos diretórios `src/` ou `tests/`
-- Nenhum código .py está fora desses diretórios principais
-- Arquivos de configuração no diretório `config/`
-- Templates de email no diretório `templates/`
-- Relatórios e logs no diretório `reports/`
-
-### Testes e Qualidade
-
-- Testes automatizados com pytest
-- Cobertura de código acima de 85%
-- Relatórios de cobertura em XML (coverage.xml) e HTML
-- Linting com flake8 e formatação com black
-- Integração contínua com verificação automática de qualidade
-
-### Reutilização e Manutenção
-
-- Componentização de funcionalidades comuns
-- Configuração externa em arquivos YAML e .env
-- Versionamento semântico e CHANGELOG.md atualizado
-- Exclusão de arquivos sensíveis do versionamento Git
-
-### Setup Avançado de Envio de Emails
-
-O sistema inclui funcionalidades avançadas de setup de envio de emails:
-
-1. **Otimização de Conteúdo com GenAI**:
-   - Geração automática de variações de títulos
-   - Otimização do corpo do email com sugestões de IA
-   - Processo de aprovação interativa do usuário
-
-2. **Testes A/B de Assuntos**:
-   - Configuração automática de testes A/B
-   - Distribuição controlada de variações de títulos
-   - Análise de resultados para identificar a melhor opção
-
-3. **Separação de Responsabilidades**:
-   - Setup de conteúdo separado do processo de envio
-   - Envio de emails utiliza conteúdo previamente aprovado
-   - Menu dedicado para configuração avançada
-
-### Interface do Terminal Moderna
-
-O sistema utiliza uma interface de terminal moderna baseada em Charm CLI, inspirada no CRUSH AI:
-
-1. **Experiência Visual Aprimorada**:
-   - Interface interativa com menus estilizados
-   - Resumos de envio em formato de tabela otimizado
-   - Tempo de execução exibido em horas quando maior que 1 hora
-   - Ocultação de listagens de sucesso para foco em problemas
-
-2. **Tratamento Inteligente de Contatos**:
-   - Marcação automática de emails inválidos com tag 'invalid'
-   - Ignorar contatos com tags inválidas durante o envio
-   - Resumo detalhado de métricas de envio
-
-3. **Configuração Personalizável**:
-   - Temas visuais configuráveis
-   - Formatos de exibição personalizáveis
-   - Opções de filtragem de informações exibidas
-
-Para acessar o setup avançado de envio de emails, use o menu interativo da CLI e selecione a opção "Setup do envio de e-mails".
-
-### Proteção de Endpoints
-
-O sistema utiliza diferentes tipos de proteção para os endpoints:
-
-1. **@token_required**: Requer apenas um token JWT válido
-2. **@role_required('admin')**: Requer um token JWT válido e a role específica ('admin')
-
-Os seguintes endpoints estão protegidos:
-
-| Endpoint                        | Método | Proteção               | Função                               |
-| ------------------------------- | ------ | ---------------------- | ------------------------------------ |
-| `/api/health`                   | GET    | token_required         | Verificação de status                |
-| `/api/emails/send`              | POST   | token_required         | Envio de emails                      |
-| `/api/emails/test-smtp`         | POST   | token_required         | Teste SMTP                           |
-| `/api/emails/clear-flags`       | POST   | role_required('admin') | Limpar flags                         |
-| `/api/emails/sync-unsubscribed` | POST   | role_required('admin') | Sincronizar descadastros             |
-| `/api/emails/sync-bounces`      | POST   | role_required('admin') | Sincronizar bounces                  |
-| `/api/config`                   | GET    | role_required('admin') | Obter configurações                  |
-| `/api/config`                   | PUT    | role_required('admin') | Atualizar configurações              |
-| `/api/config/partial`           | PATCH  | role_required('admin') | Atualizar configurações parcialmente |
-
-## Histórico de Atualizações
-
-### Setembro 2025
-- Correção do teste falhando em CLI helpers relacionado à variável de ambiente EMAIL_SENDER
-- Adição de novos testes para melhorar a cobertura de código
-- Simplificação da estrutura do projeto mantendo a funcionalidade principal
-- Atualização da documentação para refletir as mudanças atuais
+**Version:** 2.0 | **Status:** Production Ready ✅ | **Last Updated:** November 7, 2025
