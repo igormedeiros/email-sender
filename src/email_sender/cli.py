@@ -63,6 +63,38 @@ def send_emails_interactive():
             console.print("[green]✓ Modo TESTE - contatos com tag 'Test'[/green]")
         else:
             console.print("[bold red]⚠️  MODO PRODUÇÃO - CUIDADO![/bold red]")
+            console.print("\n[bold]Opções:[/bold]")
+            console.print("[bold green]1[/bold green] - Enviar normalmente (sem limpar flags)")
+            console.print("[bold yellow]2[/bold yellow] - Limpar flags antes de enviar (reenviar para todos)")
+            console.print("[bold red]3[/bold red] - Cancelar")
+            
+            prod_option = console.input("\nEscolha [1-3]: ").strip() or "1"
+            
+            if prod_option == "3":
+                console.print("[yellow]Operação cancelada.[/yellow]")
+                return
+            elif prod_option == "2":
+                # Limpar flags
+                console.print("\n[bold cyan]Limpando flags de envio anteriores...[/bold cyan]")
+                try:
+                    config = Config("config/config.yaml")
+                    db = Database(config)
+                    db.connect()
+                    
+                    # Deletar logs anteriores
+                    db.execute("DELETE FROM tbl_message_logs WHERE message_id = 1 AND event_type = 'sent'", [])
+                    db.execute("UPDATE tbl_messages SET processed = FALSE WHERE id = 1", [])
+                    db.close()
+                    
+                    console.print("[green]✅ Flags limpos com sucesso![/green]\n")
+                except Exception as e:
+                    console.print(f"[red]❌ Erro ao limpar flags: {str(e)}[/red]\n")
+                    return
+            elif prod_option != "1":
+                console.print("[red]Opção inválida![/red]")
+                return
+            
+            # Confirmação final
             confirm = console.input("[red]Tem certeza? Digite 'SIM' para confirmar: [/red]").strip()
             if confirm.upper() != "SIM":
                 console.print("[yellow]Operação cancelada.[/yellow]")
