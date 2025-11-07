@@ -1,7 +1,8 @@
 import logging
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
+from datetime import datetime
 
 from .config import Config
 from .smtp_manager import SmtpManager
@@ -39,7 +40,9 @@ class EmailService:
             'sent': 0,
             'failed': 0,
             'total_processed': 0,
-            'errors': []
+            'errors': [],
+            'sent_emails': [],  # Lista de emails enviados com sucesso
+            'failed_emails': []  # Lista de emails que falharam
         }
         
         try:
@@ -145,6 +148,10 @@ class EmailService:
             
             log.info(f"[STEP 5] Iniciando envio de {len(contacts)} emails (batch_size={batch_size})...")
             
+            # Rastreamento de progresso
+            start_time = time.time()
+            last_progress_update = 0
+            
             for i, contact_data in enumerate(contacts):
                 try:
                     # Extrair dados (pode ser dict ou tupla)
@@ -166,22 +173,18 @@ class EmailService:
                     # Em TESTE mode, permitir reenvio (is_test_mode=True)
                     if not is_test_mode:  # Se PRODUÇÃO (is_test_mode=False)
                         try:
-                            log.debug(f"[STEP 5.{i}] Verificando BD...")
                             check_query_path = "sql/messages/check_email_already_sent.sql"
                             already_sent = self.db.fetch_one(check_query_path, [contact_id, message_id])
                             
                             if already_sent:
-                                log.debug(f"[STEP 5.{i}] ⏭️  Já enviado antes")
                                 continue
                         except Exception as e:
-                            log.warning(f"[STEP 5.{i}] Erro ao verificar: {type(e).__name__}: {e}")
-                    else:
-                        log.debug(f"[STEP 5.{i}] ℹ️  TESTE mode - ignorando deduplicação BD")
+                            log.warning(f"Erro ao verificar duplicata: {type(e).__name__}: {e}")
                     
                     # ENVIAR EMAIL
                     try:
                         if not dry_run:
-                            log.debug(f"[STEP 5.{i}] 📧 Enviando email...")
+                            log.info(f"📧 {email}")
                             self.smtp.send_email(
                                 to_email=email,
                                 subject=message_subject or 'Sem assunto',
@@ -190,7 +193,7 @@ class EmailService:
                             )
                             log.info(f"[STEP 5.{i}] ✅ Email enviado para {email}")
                         else:
-                            log.info(f"[STEP 5.{i}] 🔄 [DRY-RUN] {email}")
+                            log.info(f"🔄 [DRY-RUN] {email}")
                         
                         # Marcar em memória
                         self._sent_contacts.add(contact_id)
@@ -199,20 +202,35 @@ class EmailService:
                         try:
                             insert_log_path = "sql/messages/insert_message_sent_log.sql"
                             self.db.execute(insert_log_path, [contact_id, message_id])
-                            log.debug(f"[STEP 5.{i}] 📝 Log registrado")
                         except Exception as e:
-                            log.warning(f"[STEP 5.{i}] Erro ao registrar log: {type(e).__name__}: {e}")
+                            log.warning(f"Erro ao registrar log: {type(e).__name__}: {e}")
                         
                         result['sent'] += 1
+                        result['sent_emails'].append(email)
                         
                     except Exception as e:
-                        log.error(f"[STEP 5.{i}] ❌ Erro ao enviar: {type(e).__name__}: {e}")
+                        log.error(f"❌ {email} - {type(e).__name__}: {str(e)}")
                         result['failed'] += 1
+                        result['failed_emails'].append({'email': email, 'error': str(e)})
                         result['errors'].append(f"{email}: {str(e)}")
                     
-                    # PAUSA ENTRE LOTES
+                    # PAUSA ENTRE LOTES + PROGRESSO
                     if (i + 1) % batch_size == 0 and i + 1 < len(contacts):
-                        log.info(f"[STEP 5] 📊 {i + 1}/{len(contacts)} enviados, aguardando {batch_delay}s...")
+                        # Calcular progresso
+                        elapsed = time.time() - start_time
+                        processed = i + 1
+                        percentage = (processed / len(contacts)) * 100
+                        avg_time_per_email = elapsed / processed if processed > 0 else 0
+                        remaining_emails = len(contacts) - processed
+                        estimated_remaining_secs = remaining_emails * avg_time_per_email
+                        
+                        # Formatar tempo restante
+                        if estimated_remaining_secs > 60:
+                            time_str = f"{estimated_remaining_secs/60:.1f}m"
+                        else:
+                            time_str = f"{estimated_remaining_secs:.0f}s"
+                        
+                        log.info(f"[STEP 5] 📊 {processed}/{len(contacts)} ({percentage:.1f}%) | ⏱️  ~{time_str} restantes | aguardando {batch_delay}s...")
                         time.sleep(batch_delay)
                 
                 except Exception as e:
@@ -220,6 +238,7 @@ class EmailService:
                     result['errors'].append(f"Loop error at {i}: {str(e)}")
             
             # 6. FINALIZAR
+            total_time = time.time() - start_time
             try:
                 log.info("[STEP 6] Marcando mensagem como processada...")
                 mark_path = "sql/messages/mark_message_processed.sql"
@@ -235,7 +254,17 @@ class EmailService:
             except Exception as e:
                 log.warning(f"[DONE] Erro ao desconectar: {type(e).__name__}: {e}")
             
-            log.info(f"[SUCCESS] Envio concluído: {result['sent']} enviados, {result['failed']} falhas")
+            # Log final com tempo total
+            if total_time > 60:
+                time_display = f"{total_time/60:.1f}m"
+            else:
+                time_display = f"{total_time:.1f}s"
+            
+            log.info(f"[SUCCESS] Envio concluído: {result['sent']} enviados, {result['failed']} falhas em {time_display}")
+            
+            # Gerar relatório em arquivo
+            self._generate_report(result, total_time)
+            
             return result
             
         except Exception as e:
@@ -244,3 +273,69 @@ class EmailService:
             log.error(f"[ERROR] Traceback:\n{traceback.format_exc()}")
             result['errors'].append(str(e))
             return result
+    
+    def _generate_report(self, result: Dict[str, Any], total_time: float) -> None:
+        """Gera relatório de envio em arquivo txt."""
+        try:
+            # Criar diretório de relatórios se não existir
+            reports_dir = Path("reports")
+            reports_dir.mkdir(exist_ok=True)
+            
+            # Nome do arquivo com timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_file = reports_dir / f"email_report_{timestamp}.txt"
+            
+            # Formatar tempo
+            if total_time > 60:
+                time_display = f"{total_time/60:.1f}m ({total_time:.1f}s)"
+            else:
+                time_display = f"{total_time:.1f}s"
+            
+            # Gerar conteúdo do relatório
+            lines = [
+                "=" * 80,
+                "RELATÓRIO DE ENVIO DE EMAILS",
+                "=" * 80,
+                f"\nData/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+                f"Tempo total: {time_display}",
+                f"\nResumo:",
+                f"  Total processado: {result['total_processed']}",
+                f"  Enviados com sucesso: {result['sent']}",
+                f"  Falhas: {result['failed']}",
+                f"  Taxa de sucesso: {(result['sent'] / result['total_processed'] * 100):.1f}%" if result['total_processed'] > 0 else "  Taxa de sucesso: N/A",
+                "\n" + "=" * 80,
+                "EMAILS ENVIADOS COM SUCESSO",
+                "=" * 80,
+            ]
+            
+            if result['sent_emails']:
+                for email in result['sent_emails']:
+                    lines.append(f"  ✓ {email}")
+            else:
+                lines.append("  Nenhum email enviado.")
+            
+            lines.extend([
+                "\n" + "=" * 80,
+                "EMAILS COM FALHA",
+                "=" * 80,
+            ])
+            
+            if result['failed_emails']:
+                for item in result['failed_emails']:
+                    lines.append(f"  ✗ {item['email']}")
+                    lines.append(f"    Erro: {item['error']}")
+                    lines.append("")
+            else:
+                lines.append("  Nenhuma falha.")
+            
+            lines.append("\n" + "=" * 80)
+            
+            # Escrever arquivo
+            report_content = "\n".join(lines)
+            report_file.write_text(report_content, encoding='utf-8')
+            
+            log.info(f"Relatório salvo em: {report_file}")
+            
+        except Exception as e:
+            log.error(f"Erro ao gerar relatório: {type(e).__name__}: {e}")
+
