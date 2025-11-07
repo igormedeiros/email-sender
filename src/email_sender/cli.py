@@ -81,9 +81,9 @@ def send_emails_interactive():
                     db = Database(config)
                     db.connect()
                     
-                    # Deletar logs anteriores
-                    db.execute("DELETE FROM tbl_message_logs WHERE message_id = 1 AND event_type = 'sent'", [])
-                    db.execute("UPDATE tbl_messages SET processed = FALSE WHERE id = 1", [])
+                    # Deletar logs anteriores usando arquivo SQL
+                    db.execute("sql/messages/clear_sent_flags.sql", [1])
+                    db.execute("sql/messages/mark_message_unprocessed.sql", [1])
                     db.close()
                     
                     console.print("[green]✅ Flags limpos com sucesso![/green]\n")
