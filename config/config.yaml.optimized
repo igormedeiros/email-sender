@@ -1,0 +1,23 @@
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: ${DB_PASSWORD}
+  database: treineinsite
+
+smtp:
+  host: "smtplw.com.br"
+  port: 587
+  port_ssl: 465
+  use_tls: True
+  retry_attempts: 3
+  retry_delay: 2  # Backoff exponencial: 2s, 4s, 8s (reduzido de 5s)
+  retry_backoff: exponential  # Use exponential backoff (NOVO v3.0)
+  send_timeout: 3  # Reduzido de 10s para 3s - mais rápido + seguro (OTIMIZADO v3.0)
+
+email:
+  sender: "mkt@envio.treineinsite.com.br"
+  batch_delay: 0  # Sem delay entre lotes (reduzido de 5s) - OTIMIZADO v3.0
+  batch_size: 200
+  test_recipient: "igor.medeiros@gmail.com"
+  public_domain: "mkt.treineinsite.com.br"

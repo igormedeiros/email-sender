@@ -36,8 +36,9 @@ class SmtpManager:
         """Estabelece conexão SMTP."""
         if self.smtp_connection is None:
             retry_attempts = self.smtp_config.get("retry_attempts", 3)
-            retry_delay = self.smtp_config.get("retry_delay", 5)
-            timeout = self.smtp_config.get("send_timeout", 10)
+            retry_delay = self.smtp_config.get("retry_delay", 2)
+            timeout = self.smtp_config.get("send_timeout", 3)
+            use_exponential_backoff = self.smtp_config.get("retry_backoff", "exponential") == "exponential"
             last_exception = None
 
             for attempt in range(retry_attempts):
@@ -70,7 +71,10 @@ class SmtpManager:
                             pass
                     self.smtp_connection = None
                     if attempt < retry_attempts - 1 and retry_delay > 0:
-                        time.sleep(retry_delay)
+                        # Backoff exponencial: 2s, 4s, 8s, 16s, ... ou linear: 2s, 2s, 2s
+                        delay = retry_delay * (2 ** attempt) if use_exponential_backoff else retry_delay
+                        log.info(f"Aguardando {delay}s antes de tentar novamente...")
+                        time.sleep(delay)
             
             raise Exception(f"Falha ao conectar ao servidor SMTP após {retry_attempts} tentativas: {str(last_exception)}")
 
