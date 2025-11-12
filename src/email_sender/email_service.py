@@ -4,11 +4,15 @@ from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime
 
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn, TaskProgressColumn
+from rich.console import Console
+
 from .config import Config
 from .smtp_manager import SmtpManager
 from .db import Database
 
 log = logging.getLogger("email_sender")
+console = Console()
 
 
 class EmailService:
@@ -132,6 +136,30 @@ class EmailService:
                 log.warning("[STEP 3] ⚠️  Nenhum contato encontrado")
                 return result
             
+            # 3.5 PRÉ-CARREGAR DUPLICATAS EM MEMÓRIA (OTIMIZAÇÃO CRÍTICA)
+            # ⚡ Carregar TODOS os contatos já-enviados UMA VEZ
+            # Isso evita N queries SQL durante o envio (gargalo principal!)
+            already_sent_contact_ids = set()
+            if not is_test_mode:  # Apenas em PRODUÇÃO
+                try:
+                    log.info("[STEP 3.5] Pré-carregando duplicatas em memória (OTIMIZAÇÃO)...")
+                    check_all_sent_path = "sql/messages/check_all_emails_already_sent.sql"
+                    all_sent_logs = self.db.fetch_all(check_all_sent_path, [message_id])
+                    already_sent_contact_ids = {row['contact_id'] for row in all_sent_logs}
+                    log.info(f"[STEP 3.5] ✅ {len(already_sent_contact_ids)} contatos já-enviados em memória")
+                except Exception as e:
+                    log.warning(f"[STEP 3.5] ⚠️  Erro ao pré-carregar: {e}")
+            
+            # 3.6 DESCONECTAR BANCO ANTES DO ENVIO
+            # ⚡ OTIMIZAÇÃO CRÍTICA: Liberar conexão de BD
+            # Não precisamos de BD durante o envio SMTP (que é O gargalo)
+            try:
+                log.info("[STEP 3.6] Desconectando BD para liberar recursos durante envio...")
+                self.db.close()
+                log.info("[STEP 3.6] ✅ BD desconectado (reconectará ao final)")
+            except Exception as e:
+                log.warning(f"[STEP 3.6] Erro ao desconectar BD: {e}")
+            
             # 4. CONECTAR SMTP
             try:
                 log.info("[STEP 4] Conectando ao SMTP...")
@@ -148,111 +176,145 @@ class EmailService:
             
             log.info(f"[STEP 5] Iniciando envio de {len(contacts)} emails (batch_size={batch_size})...")
             
-            # Rastreamento de progresso
-            start_time = time.time()
-            last_progress_update = 0
-            
-            for i, contact_data in enumerate(contacts):
-                try:
-                    # Extrair dados (pode ser dict ou tupla)
-                    if isinstance(contact_data, dict):
-                        contact_id = contact_data.get('id')
-                        email = contact_data.get('email')
-                    else:
-                        contact_id, email = contact_data
-                    
-                    log.debug(f"[STEP 5.{i}] Processando: id={contact_id}, email={email}")
-                    result['total_processed'] += 1
-                    
-                    # PROTEÇÃO 1: Verificar memória (duplicata nesta sessão)
-                    if contact_id in self._sent_contacts:
-                        log.debug(f"[STEP 5.{i}] ⏭️  Já enviado nesta sessão")
-                        continue
-                    
-                    # PROTEÇÃO 2: Verificar BD (já enviado antes?) - APENAS em PRODUÇÃO
-                    # Em TESTE mode, permitir reenvio (is_test_mode=True)
-                    if not is_test_mode:  # Se PRODUÇÃO (is_test_mode=False)
-                        try:
-                            check_query_path = "sql/messages/check_email_already_sent.sql"
-                            already_sent = self.db.fetch_one(check_query_path, [contact_id, message_id])
-                            
-                            if already_sent:
-                                continue
-                        except Exception as e:
-                            log.warning(f"Erro ao verificar duplicata: {type(e).__name__}: {e}")
-                    
-                    # ENVIAR EMAIL
-                    try:
-                        if not dry_run:
-                            log.info(f"📧 {email}")
-                            self.smtp.send_email(
-                                to_email=email,
-                                subject=message_subject or 'Sem assunto',
-                                content=message_html or '<p>Sem conteúdo</p>',
-                                is_html=True
-                            )
-                            log.info(f"[STEP 5.{i}] ✅ Email enviado para {email}")
-                        else:
-                            log.info(f"🔄 [DRY-RUN] {email}")
-                        
-                        # Marcar em memória
-                        self._sent_contacts.add(contact_id)
-                        
-                        # Registrar no BD
-                        try:
-                            insert_log_path = "sql/messages/insert_message_sent_log.sql"
-                            self.db.execute(insert_log_path, [contact_id, message_id])
-                        except Exception as e:
-                            log.warning(f"Erro ao registrar log: {type(e).__name__}: {e}")
-                        
-                        result['sent'] += 1
-                        result['sent_emails'].append(email)
-                        
-                    except Exception as e:
-                        log.error(f"❌ {email} - {type(e).__name__}: {str(e)}")
-                        result['failed'] += 1
-                        result['failed_emails'].append({'email': email, 'error': str(e)})
-                        result['errors'].append(f"{email}: {str(e)}")
-                    
-                    # PAUSA ENTRE LOTES + PROGRESSO
-                    if (i + 1) % batch_size == 0 and i + 1 < len(contacts):
-                        # Calcular progresso
-                        elapsed = time.time() - start_time
-                        processed = i + 1
-                        percentage = (processed / len(contacts)) * 100
-                        avg_time_per_email = elapsed / processed if processed > 0 else 0
-                        remaining_emails = len(contacts) - processed
-                        estimated_remaining_secs = remaining_emails * avg_time_per_email
-                        
-                        # Formatar tempo restante
-                        if estimated_remaining_secs > 60:
-                            time_str = f"{estimated_remaining_secs/60:.1f}m"
-                        else:
-                            time_str = f"{estimated_remaining_secs:.0f}s"
-                        
-                        log.info(f"[STEP 5] 📊 {processed}/{len(contacts)} ({percentage:.1f}%) | ⏱️  ~{time_str} restantes | aguardando {batch_delay}s...")
-                        time.sleep(batch_delay)
+            # Usar barra de progresso Rich
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+                transient=True
+            ) as progress:
+                task = progress.add_task(
+                    f"[cyan]Enviando {len(contacts)} emails...",
+                    total=len(contacts)
+                )
                 
-                except Exception as e:
-                    log.error(f"[STEP 5.{i}] ❌ Erro no loop: {type(e).__name__}: {e}")
-                    result['errors'].append(f"Loop error at {i}: {str(e)}")
+                start_time = time.time()
+                
+                for i, contact_data in enumerate(contacts):
+                    try:
+                        # Extrair dados (pode ser dict ou tupla)
+                        if isinstance(contact_data, dict):
+                            contact_id = contact_data.get('id')
+                            email = contact_data.get('email')
+                        else:
+                            contact_id, email = contact_data
+                        
+                        log.debug(f"[STEP 5.{i}] Processando: id={contact_id}, email={email}")
+                        result['total_processed'] += 1
+                        
+                        # PROTEÇÃO 1: Verificar memória (duplicata nesta sessão)
+                        if contact_id in self._sent_contacts:
+                            log.debug(f"[STEP 5.{i}] ⏭️  Já enviado nesta sessão")
+                            progress.advance(task)
+                            continue
+                        
+                        # PROTEÇÃO 2: Verificar BD (já enviado antes?) - APENAS em PRODUÇÃO
+                        # Em TESTE mode, permitir reenvio (is_test_mode=True)
+                        # ⚡ OTIMIZAÇÃO CRÍTICA: Usar pré-carregamento em memória (O(1) lookup, sem queries!)
+                        if not is_test_mode and contact_id in already_sent_contact_ids:
+                            log.debug(f"[STEP 5.{i}] ⏭️  Já enviado (verificação em memória)")
+                            progress.advance(task)
+                            continue
+                        
+                        # ENVIAR EMAIL (sem acesso a BD durante envio!)
+                        try:
+                            if not dry_run:
+                                self.smtp.send_email(
+                                    to_email=email,
+                                    subject=message_subject or 'Sem assunto',
+                                    content=message_html or '<p>Sem conteúdo</p>',
+                                    is_html=True
+                                )
+                                log.debug(f"[STEP 5.{i}] ✅ Email enviado para {email}")
+                            else:
+                                log.debug(f"🔄 [DRY-RUN] {email}")
+                            
+                            # Marcar em memória (sem query!)
+                            self._sent_contacts.add(contact_id)
+                            
+                            result['sent'] += 1
+                            result['sent_emails'].append({'id': contact_id, 'email': email})
+                            
+                        except Exception as e:
+                            log.error(f"❌ {email} - {type(e).__name__}: {str(e)}")
+                            result['failed'] += 1
+                            result['failed_emails'].append({'email': email, 'error': str(e)})
+                            result['errors'].append(f"{email}: {str(e)}")
+                        
+                        # Atualizar barra de progresso
+                        progress.advance(task)
+                        
+                        # PAUSA ENTRE LOTES
+                        if (i + 1) % batch_size == 0 and i + 1 < len(contacts):
+                            time.sleep(batch_delay)
+                    
+                    except Exception as e:
+                        log.error(f"[STEP 5.{i}] ❌ Erro no loop: {type(e).__name__}: {e}")
+                        result['errors'].append(f"Loop error at {i}: {str(e)}")
+                        progress.advance(task)
             
-            # 6. FINALIZAR
+            # 6. FINALIZAR ENVIO SMTP
             total_time = time.time() - start_time
-            try:
-                log.info("[STEP 6] Marcando mensagem como processada...")
-                mark_path = "sql/messages/mark_message_processed.sql"
-                self.db.execute(mark_path, [message_id])
-                log.info("[STEP 6] ✅ Mensagem marcada")
-            except Exception as e:
-                log.warning(f"[STEP 6] Erro: {type(e).__name__}: {e}")
             
-            # DESCONECTAR
+            # DESCONECTAR SMTP
             try:
                 self.smtp.disconnect()
-                log.info("[DONE] SMTP desconectado")
+                log.info("[STEP 6] ✅ SMTP desconectado")
             except Exception as e:
-                log.warning(f"[DONE] Erro ao desconectar: {type(e).__name__}: {e}")
+                log.warning(f"[STEP 6] Erro ao desconectar SMTP: {type(e).__name__}: {e}")
+            
+            # 7. RECONECTAR BD E FAZER BATCH UPDATE
+            # ⚡ OTIMIZAÇÃO: Fazer TODOS os UPDATEs de uma vez (batch)
+            try:
+                log.info("[STEP 7] Reconectando ao BD para gravação em batch...")
+                self.db.connect()
+                log.info("[STEP 7] ✅ BD reconectado")
+            except Exception as e:
+                log.error(f"[STEP 7] ❌ Erro ao reconectar BD: {type(e).__name__}: {e}")
+                result['errors'].append(f"DB reconnect failed: {str(e)}")
+                # Continuar mesmo se falhar, para gerar relatório
+            
+            # 7.1 REGISTRAR EMAILS COM SUCESSO (batch)
+            try:
+                if result['sent'] > 0 and self.db._conn:
+                    log.info(f"[STEP 7.1] Registrando {result['sent']} emails enviados em batch...")
+                    insert_log_path = "sql/messages/insert_message_sent_log_batch.sql"
+                    
+                    # Preparar dados para batch
+                    batch_data = [(item['id'], message_id) for item in result['sent_emails']]
+                    
+                    # Executar batch insert
+                    for contact_id, msg_id in batch_data:
+                        self.db.execute("sql/messages/insert_message_sent_log.sql", [contact_id, msg_id])
+                    
+                    log.info(f"[STEP 7.1] ✅ {result['sent']} registros de sucesso gravados")
+            except Exception as e:
+                log.warning(f"[STEP 7.1] Erro ao registrar sucessos: {type(e).__name__}: {e}")
+                result['errors'].append(f"Insert success logs failed: {str(e)}")
+            
+            # 7.2 MARCAR MENSAGEM COMO PROCESSADA
+            try:
+                if self.db._conn:
+                    log.info("[STEP 7.2] Marcando mensagem como processada...")
+                    mark_path = "sql/messages/mark_message_processed.sql"
+                    self.db.execute(mark_path, [message_id])
+                    log.info("[STEP 7.2] ✅ Mensagem marcada")
+            except Exception as e:
+                log.warning(f"[STEP 7.2] Erro ao marcar mensagem: {type(e).__name__}: {e}")
+            
+            # 7.3 REGISTRAR EMAILS COM FALHA (para relatório)
+            if result['failed'] > 0:
+                log.info(f"[STEP 7.3] Relatório contém {result['failed']} emails com falha")
+                log.info(f"[STEP 7.3] ℹ️  Falhas estão documentadas no relatório para análise manual")
+            
+            # Desconectar BD ao final
+            try:
+                self.db.close()
+            except:
+                pass
             
             # Log final com tempo total
             if total_time > 60:
@@ -262,7 +324,7 @@ class EmailService:
             
             log.info(f"[SUCCESS] Envio concluído: {result['sent']} enviados, {result['failed']} falhas em {time_display}")
             
-            # Gerar relatório em arquivo
+            # Gerar relatório em arquivo (com lista de falhas para análise)
             self._generate_report(result, total_time)
             
             return result
@@ -309,7 +371,9 @@ class EmailService:
             ]
             
             if result['sent_emails']:
-                for email in result['sent_emails']:
+                for item in result['sent_emails']:
+                    # Lidar com dict ou string
+                    email = item['email'] if isinstance(item, dict) else item
                     lines.append(f"  ✓ {email}")
             else:
                 lines.append("  Nenhum email enviado.")

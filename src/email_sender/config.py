@@ -97,6 +97,16 @@ class Config:
     def content_config(self) -> dict:
         """Retorna a configuração de conteúdo dinâmico para os templates de email"""
         return self.email_content
+
+    def save_content_config(self):
+        """Salva a configuração de conteúdo dinâmico no arquivo email.yaml"""
+        try:
+            with open(self.email_content_file, 'w', encoding='utf-8') as file:
+                yaml.dump(self.email_content, file, allow_unicode=True, sort_keys=False)
+            logger.info(f"Configuração de conteúdo salva em {self.email_content_file}")
+        except Exception as e:
+            logger.error(f"Erro ao salvar configuração de conteúdo: {str(e)}")
+            raise
         
     @property
     def rest_api_config(self) -> dict:

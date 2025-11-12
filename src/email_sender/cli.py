@@ -34,7 +34,8 @@ def show_menu():
     table.add_row("[bold]2[/bold]", "Testar SMTP")
     table.add_row("[bold]3[/bold]", "Ver contatos")
     table.add_row("[bold]4[/bold]", "Importar contatos (CSV)")
-    table.add_row("[bold]5[/bold]", "Sair")
+    table.add_row("[bold]5[/bold]", "Editar evento")
+    table.add_row("[bold]6[/bold]", "Sair")
     
     console.print(table)
     return console.input("\n[bold]Escolha uma opção:[/bold] ").strip()
@@ -284,6 +285,55 @@ def import_contacts_csv():
         console.print(f"\n[red]Erro na importação: {str(e)}[/red]\n")
 
 
+def edit_event_interactive():
+    """Menu interativo para editar os dados do evento."""
+    try:
+        config = Config()
+        email_config = config.content_config
+
+        console.print("\n[bold cyan]✏️ Editando Dados do Evento[/bold cyan]")
+        console.print("Deixe em branco para manter o valor atual.")
+
+        evento = email_config.get('evento', {})
+        
+        # Editar dados do evento
+        novo_nome = console.input(f"  [bold]Nome[/bold] ([cyan]{evento.get('nome', '')}[/cyan]): ").strip()
+        if novo_nome:
+            evento['nome'] = novo_nome
+
+        nova_data = console.input(f"  [bold]Data[/bold] ([cyan]{evento.get('data', '')}[/cyan]): ").strip()
+        if nova_data:
+            evento['data'] = nova_data
+
+        novo_local = console.input(f"  [bold]Local[/bold] ([cyan]{evento.get('local', '')}[/cyan]): ").strip()
+        if novo_local:
+            evento['local'] = novo_local
+            
+        novo_link = console.input(f"  [bold]Link[/bold] ([cyan]{evento.get('link', '')}[/cyan]): ").strip()
+        if novo_link:
+            evento['link'] = novo_link
+
+        novo_cupom = console.input(f"  [bold]Cupom[/bold] ([cyan]{evento.get('cupom', '')}[/cyan]): ").strip()
+        if novo_cupom:
+            evento['cupom'] = novo_cupom
+
+        # Editar assunto do email
+        email_data = email_config.get('email', {})
+        novo_assunto = console.input(f"  [bold]Assunto do Email[/bold] ([yellow]{email_data.get('subject', '')}[/yellow]): ").strip()
+        if novo_assunto:
+            email_data['subject'] = novo_assunto
+
+        # Salvar alterações
+        config.email_content['evento'] = evento
+        config.email_content['email'] = email_data
+        config.save_content_config()
+
+        console.print("\n[green]✅ Dados do evento atualizados com sucesso![/green]")
+
+    except Exception as e:
+        console.print(f"\n[red]❌ Erro ao editar evento: {str(e)}[/red]\n")
+
+
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context, option: Optional[str] = typer.Argument(None)):
     """
@@ -295,7 +345,8 @@ def main(ctx: typer.Context, option: Optional[str] = typer.Argument(None)):
         uv run -m email_sender.cli 2      # Testar SMTP
         uv run -m email_sender.cli 3      # Ver contatos
         uv run -m email_sender.cli 4      # Importar contatos
-        uv run -m email_sender.cli 5      # Sair
+        uv run -m email_sender.cli 5      # Editar evento
+        uv run -m email_sender.cli 6      # Sair
     """
     
     # Se passou um argumento, usar como opção
@@ -314,7 +365,9 @@ def main(ctx: typer.Context, option: Optional[str] = typer.Argument(None)):
         list_contacts()
     elif choice == "4":
         import_contacts_csv()
-    elif choice == "5" or choice.lower() == "sair":
+    elif choice == "5":
+        edit_event_interactive()
+    elif choice == "6" or choice.lower() == "sair":
         console.print("\n[yellow]Até logo![/yellow]\n")
         raise typer.Exit(0)
     else:
