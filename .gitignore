@@ -31,10 +31,7 @@ prod.properties
 *password*
 
 # Configuration files
-config/*.yaml
-config/*.yml
-*.yaml
-*.yml
+config.yaml.optimized
 
 # Email templates
 templates/*.html
