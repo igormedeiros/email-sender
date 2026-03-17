@@ -24,7 +24,7 @@ class EmailService:
         self.smtp = smtp
         self._sent_contacts = set()
 
-    def send_batch(self, message_id: int, dry_run: bool = False, is_test_mode: bool = True) -> Dict[str, Any]:
+    def send_batch(self, message_id: int, dry_run: bool = False, is_test_mode: bool = True, target_email: str = None) -> Dict[str, Any]:
         """
         Envia emails em lote com proteções:
         1. Não envia para descadastrados
@@ -36,6 +36,7 @@ class EmailService:
             message_id: ID da mensagem a ser enviada
             dry_run: Se True, não envia de verdade
             is_test_mode: Se True, apenas contatos com tag 'Test' (padrão: True)
+            target_email: Se fornecido, envia apenas para este email
 
         Returns:
             Dict com estatísticas do envio
@@ -49,8 +50,10 @@ class EmailService:
             'failed_emails': []  # Lista de emails que falharam
         }
         
+        is_single_target_mode = target_email is not None
+        
         try:
-            log.info(f"[START] send_batch: message_id={message_id}, dry_run={dry_run}")
+            log.info(f"[START] send_batch: message_id={message_id}, dry_run={dry_run}, is_test_mode={is_test_mode}, target_email={target_email}")
             
             # 1. CONECTAR AO BANCO
             try:
@@ -66,12 +69,17 @@ class EmailService:
             message_subject = None
             try:
                 log.info(f"[STEP 2] Validando mensagem {message_id}...")
-                check_msg_path = "sql/messages/check_message_valid.sql"
-                msg_exists = self.db.fetch_one(check_msg_path, [message_id])
+                if is_test_mode:
+                    # Em modo de teste, apenas verificar se a mensagem existe, ignorando o status 'processed'
+                    msg_exists = self.db.fetch_one("sql/messages/check_message_exists.sql", [message_id])
+                else:
+                    # Em modo de produção, usar a validação completa
+                    check_msg_path = "sql/messages/check_message_valid.sql"
+                    msg_exists = self.db.fetch_one(check_msg_path, [message_id])
                 
                 if not msg_exists:
-                    log.warning(f"[STEP 2] ❌ Mensagem {message_id} não existe ou já foi processada")
-                    result['errors'].append(f"Message {message_id} invalid or processed")
+                    log.warning(f"[STEP 2] ❌ Mensagem {message_id} não existe ou não está pronta para envio")
+                    result['errors'].append(f"Message {message_id} invalid or not ready")
                     return result
                 
                 # Buscar assunto da mensagem
@@ -118,14 +126,19 @@ class EmailService:
             
             # 3. BUSCAR CONTATOS ELEGÍVEIS
             try:
-                if is_test_mode:
-                    log.info("[STEP 3] Buscando contatos elegíveis (tag 'Test' apenas)...")
+                if is_single_target_mode:
+                    log.info(f"[STEP 3] Buscando contato específico: {target_email}...")
+                    query_path = "sql/contacts/select_contact_by_email.sql"
+                    contacts = self.db.fetch_all(query_path, [target_email])
+                elif is_test_mode:
+                    log.info("[STEP 3] Buscando contatos elegíveis (tag 'Test' apenas, modo de teste)...")
+                    query_path = "sql/contacts/select_recipients_for_message_test_mode.sql"
+                    contacts = self.db.fetch_all(query_path, [True, message_id])
                 else:
                     log.info("[STEP 3] Buscando contatos elegíveis (PRODUÇÃO - TODOS)...")
-                query_path = "sql/contacts/select_recipients_for_message.sql"
-                # is_test_mode = TRUE = apenas contatos com tag 'Test'
-                # is_test_mode = FALSE = TODOS os contatos elegíveis
-                contacts = self.db.fetch_all(query_path, [is_test_mode, message_id])
+                    query_path = "sql/contacts/select_recipients_for_message.sql"
+                    contacts = self.db.fetch_all(query_path, [False, message_id])
+                
                 log.info(f"[STEP 3] ✅ Encontrados {len(contacts)} contatos")
             except Exception as e:
                 log.error(f"[STEP 3] ❌ Erro: {type(e).__name__}: {e}")
@@ -140,7 +153,8 @@ class EmailService:
             # ⚡ Carregar TODOS os contatos já-enviados UMA VEZ
             # Isso evita N queries SQL durante o envio (gargalo principal!)
             already_sent_contact_ids = set()
-            if not is_test_mode:  # Apenas em PRODUÇÃO
+            is_production_run = not is_test_mode and not is_single_target_mode
+            if is_production_run:
                 try:
                     log.info("[STEP 3.5] Pré-carregando duplicatas em memória (OTIMIZAÇÃO)...")
                     check_all_sent_path = "sql/messages/check_all_emails_already_sent.sql"
@@ -214,7 +228,7 @@ class EmailService:
                         # PROTEÇÃO 2: Verificar BD (já enviado antes?) - APENAS em PRODUÇÃO
                         # Em TESTE mode, permitir reenvio (is_test_mode=True)
                         # ⚡ OTIMIZAÇÃO CRÍTICA: Usar pré-carregamento em memória (O(1) lookup, sem queries!)
-                        if not is_test_mode and contact_id in already_sent_contact_ids:
+                        if is_production_run and contact_id in already_sent_contact_ids:
                             log.debug(f"[STEP 5.{i}] ⏭️  Já enviado (verificação em memória)")
                             progress.advance(task)
                             continue
@@ -279,7 +293,7 @@ class EmailService:
             
             # 7.1 REGISTRAR EMAILS COM SUCESSO (batch)
             try:
-                if result['sent'] > 0 and self.db._conn:
+                if result['sent'] > 0 and self.db._conn and not is_test_mode: # Não registrar logs em modo de teste
                     log.info(f"[STEP 7.1] Registrando {result['sent']} emails enviados em batch...")
                     insert_log_path = "sql/messages/insert_message_sent_log_batch.sql"
                     
@@ -291,17 +305,21 @@ class EmailService:
                         self.db.execute("sql/messages/insert_message_sent_log.sql", [contact_id, msg_id])
                     
                     log.info(f"[STEP 7.1] ✅ {result['sent']} registros de sucesso gravados")
+                elif is_test_mode:
+                    log.info("[STEP 7.1] ℹ️  Não registrando logs de envio (modo de teste)")
             except Exception as e:
                 log.warning(f"[STEP 7.1] Erro ao registrar sucessos: {type(e).__name__}: {e}")
                 result['errors'].append(f"Insert success logs failed: {str(e)}")
             
             # 7.2 MARCAR MENSAGEM COMO PROCESSADA
             try:
-                if self.db._conn:
+                if self.db._conn and not is_test_mode: # Adicionar condição para não marcar como processada em modo de teste
                     log.info("[STEP 7.2] Marcando mensagem como processada...")
                     mark_path = "sql/messages/mark_message_processed.sql"
                     self.db.execute(mark_path, [message_id])
                     log.info("[STEP 7.2] ✅ Mensagem marcada")
+                elif is_test_mode:
+                    log.info("[STEP 7.2] ℹ️  Mensagem NÃO marcada como processada (modo de teste)")
             except Exception as e:
                 log.warning(f"[STEP 7.2] Erro ao marcar mensagem: {type(e).__name__}: {e}")
             
