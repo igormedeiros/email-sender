@@ -98,6 +98,9 @@ class EmailService:
                     evento = content_config.get('evento', {})
                     promocao = content_config.get('promocao', {})
                     
+                    # Substituir placeholders no assunto também
+                    message_subject = message_subject.replace('{cidade}', evento.get('cidade', ''))
+                    
                     # Substituir placeholders
                     message_html = message_html.replace('{data_evento}', evento.get('data', ''))
                     message_html = message_html.replace('{cidade}', evento.get('cidade', ''))
@@ -109,7 +112,7 @@ class EmailService:
                     # Desconto parágrafo
                     desconto = promocao.get('desconto', '')
                     if desconto:
-                        desconto_para = f"<p><strong>🎉 DESCONTO ESPECIAL: {desconto} OFF!</strong> Use o cupom <strong>{evento.get('cupom', '')}</strong> para garantir esse preço exclusivo.</p>"
+                        desconto_para = f"<p><strong>🎉 MÊS DO CONSUMIDOR: {desconto} DE DESCONTO!</strong> Use o cupom <strong>{evento.get('cupom', '')}</strong> para garantir esse preço exclusivo. Aproveite, pois as <strong>vagas são limitadas!</strong></p>"
                     else:
                         desconto_para = ""
                     message_html = message_html.replace('{desconto_paragrafo}', desconto_para)
@@ -420,4 +423,3 @@ class EmailService:
             
         except Exception as e:
             log.error(f"Erro ao gerar relatório: {type(e).__name__}: {e}")
-

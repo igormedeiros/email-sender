@@ -96,7 +96,27 @@ class Config:
     @property
     def content_config(self) -> dict:
         """Retorna a configuração de conteúdo dinâmico para os templates de email"""
-        return self.email_content
+        # Criar uma cópia para não modificar o original self.email_content em memória
+        content = self.email_content.copy()
+        
+        # Se houver dados do evento e um cupom definido, anexar ao link
+        if "evento" in content and isinstance(content["evento"], dict):
+            evento = content["evento"].copy()
+            link = evento.get("link")
+            cupom = evento.get("cupom")
+            
+            if link and cupom:
+                # Se o link é uma string e o cupom não está presente, anexar
+                link = str(link).strip()
+                cupom = str(cupom).strip()
+                
+                if cupom and f"d={cupom}" not in link:
+                    # Decidir o separador (? ou &)
+                    separator = "&" if "?" in link else "?"
+                    evento["link"] = f"{link}{separator}d={cupom}"
+                    content["evento"] = evento
+        
+        return content
 
     def save_content_config(self):
         """Salva a configuração de conteúdo dinâmico no arquivo email.yaml"""

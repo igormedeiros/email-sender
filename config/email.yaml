@@ -1,6 +1,5 @@
 email:
-  subject: 'POWER TREINE (DF): Proteção e Seletividade em Projetos de Média Tensão
-    e Geração Distribuída'
+  subject: 'POWER TREINE (DF): Proteção e Seletividade em Projetos de Média Tensão e Geração Distribuída'
   template_path: config/templates/email.html
 evento:
   nome: POWER TREINE (DF) - Proteção e Seletividade em Projetos de Média Tensão e
@@ -10,3 +9,6 @@ evento:
   cidade: Brasília
   uf: DF
   link: https://www.sympla.com.br/evento/power-treine-df-protecao-e-seletividade-em-projetos-de-media-tensao-e-geracao-distribuida/3329572
+  cupom: CINA30
+promocao:
+  desconto: 30%

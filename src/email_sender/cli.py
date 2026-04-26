@@ -1,12 +1,28 @@
 #!/usr/bin/env python3
 """
-CLI interativa para o Email Sender - Menu principal.
-Segue princípios KISS com interface amigável.
+Treineinsite Email Sender CLI.
+
+Complete command-line interface for email batch sending, SMTP testing,
+contact management, event editing, and database maintenance.
+
+Usage:
+    uv run treineinsite-sendemails             # Interactive menu
+    uv run treineinsite-sendemails send        # Send emails (test mode)
+    uv run treineinsite-sendemails send --prod # Send emails (production)
+    uv run treineinsite-sendemails test-smtp   # Test SMTP connection
+    uv run treineinsite-sendemails contacts    # List eligible contacts
+    uv run treineinsite-sendemails import-csv  # Import contacts from CSV
+    uv run treineinsite-sendemails edit-event  # Edit event data
+    uv run treineinsite-sendemails clean-db    # Database maintenance
+    uv run treineinsite-sendemails bounces     # Manage hardbounces
 """
-import sys
-import typer
+import csv
 import logging
+import sys
+from pathlib import Path
 from typing import Optional
+
+import typer
 from rich.console import Console
 from rich.table import Table
 
@@ -15,364 +31,444 @@ from .db import Database
 from .smtp_manager import SmtpManager
 from .email_service import EmailService
 
-# CONFIGURAR LOGGING PARA VER [INFO], [WARNING], [ERROR]
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(levelname)s] %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
 console = Console()
-app = typer.Typer()
+app = typer.Typer(
+    name="treineinsite-sendemails",
+    help="Treineinsite Email Sender CLI - batch email sending with deduplication.",
+    no_args_is_help=False,
+)
 
 
-def show_menu():
-    """Exibir menu interativo principal."""
-    console.print("\n[bold cyan]Treineinsite • Email Sender CLI[/bold cyan]\n")
-    
-    table = Table(show_header=False, box=None)
-    table.add_row("[bold]1[/bold]", "Enviar emails")
-    table.add_row("[bold]2[/bold]", "Testar SMTP")
-    table.add_row("[bold]3[/bold]", "Ver contatos")
-    table.add_row("[bold]4[/bold]", "Importar contatos (CSV)")
-    table.add_row("[bold]5[/bold]", "Editar evento")
-    table.add_row("[bold]6[/bold]", "Sair")
-    
-    console.print(table)
-    return console.input("\n[bold]Escolha uma opção:[/bold] ").strip()
+def _load_components(config_path: str = "config/config.yaml"):
+    config = Config(config_path)
+    db = Database(config)
+    smtp = SmtpManager(config)
+    return config, db, smtp
 
 
-def send_emails_interactive():
-    """Menu interativo para envio de emails."""
+# ---------------------------------------------------------------------------
+# send
+# ---------------------------------------------------------------------------
+@app.command()
+def send(
+    message_id: int = typer.Option(1, "--message-id", "-m", help="Message ID to send."),
+    prod: bool = typer.Option(False, "--prod", "-p", help="Production mode (all contacts). Default is test mode."),
+    dry_run: bool = typer.Option(False, "--dry-run", "-d", help="Simulate sending without actually delivering emails."),
+    clear_flags: bool = typer.Option(False, "--clear-flags", "-c", help="Clear send flags before sending (allows re-send)."),
+    target_email: Optional[str] = typer.Option(None, "--target", "-t", help="Send only to this specific email address."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompts."),
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """Send emails in batch with 4-level deduplication protection."""
     try:
-        config = Config("config/config.yaml")
-        
-        # Escolher modo (padrão: TESTE)
-        console.print("\n[bold]Modo de envio:[/bold]")
-        console.print("[bold green]1[/bold green] - Teste (contatos com tag 'Test') [padrão]")
-        console.print("[bold red]2[/bold red] - ⚠️  Produção (TODOS os contatos)")
-        
-        mode = console.input("\nEscolha [1-2] (padrão=1): ").strip() or "1"
-        
-        if mode not in ["1", "2"]:
-            console.print("[red]Opção inválida![/red]")
-            return
-        
-        is_test = mode == "1"
-        
-        # Aviso se for produção
-        if is_test:
-            console.print("[green]✓ Modo TESTE - contatos com tag 'Test'[/green]")
-        else:
-            console.print("[bold red]⚠️  MODO PRODUÇÃO - CUIDADO![/bold red]")
-            console.print("\n[bold]Opções:[/bold]")
-            console.print("[bold green]1[/bold green] - Enviar normalmente (sem limpar flags)")
-            console.print("[bold yellow]2[/bold yellow] - Limpar flags antes de enviar (reenviar para todos)")
-            console.print("[bold red]3[/bold red] - Cancelar")
-            
-            prod_option = console.input("\nEscolha [1-3]: ").strip() or "1"
-            
-            if prod_option == "3":
-                console.print("[yellow]Operação cancelada.[/yellow]")
-                return
-            elif prod_option == "2":
-                # Limpar flags
-                console.print("\n[bold cyan]Limpando flags de envio anteriores...[/bold cyan]")
-                try:
-                    config = Config("config/config.yaml")
-                    db = Database(config)
-                    db.connect()
-                    
-                    # Deletar logs anteriores usando arquivo SQL
-                    db.execute("sql/messages/clear_sent_flags.sql", [1])
-                    db.execute("sql/messages/mark_message_unprocessed.sql", [1])
-                    db.close()
-                    
-                    console.print("[green]✅ Flags limpos com sucesso![/green]\n")
-                except Exception as e:
-                    console.print(f"[red]❌ Erro ao limpar flags: {str(e)}[/red]\n")
-                    return
-            elif prod_option != "1":
-                console.print("[red]Opção inválida![/red]")
-                return
-            
-            # Confirmação final
-            confirm = console.input("[red]Tem certeza? Digite 'SIM' para confirmar: [/red]").strip()
-            if confirm.upper() != "SIM":
-                console.print("[yellow]Operação cancelada.[/yellow]")
-                return
-        
-        # Inicializar componentes
-        db = Database(config)
-        smtp = SmtpManager(config)
-        service = EmailService(config, db, smtp)
-        
-        # 📋 MOSTRAR TEMPLATE ANTES DE ENVIAR
-        console.print("\n[bold cyan]═══════════════════════════════════════[/bold cyan]")
-        console.print("[bold cyan]📋 Dados do Email a Enviar[/bold cyan]")
-        console.print("[bold cyan]═══════════════════════════════════════[/bold cyan]")
-        
-        email_config = config.content_config  # Carregar dados dinâmicos
-        
-        # Tabela com dados
-        table_preview = Table(show_header=False, box=None)
-        
-        # Assunto
-        subject = email_config.get('email', {}).get('subject', '(sem assunto)')
-        table_preview.add_row("[bold]Assunto:[/bold]", f"[yellow]{subject}[/yellow]")
-        
-        # Evento
-        evento = email_config.get('evento', {})
-        table_preview.add_row("[bold]Evento:[/bold]", f"[cyan]{evento.get('nome', '(sem evento)')}[/cyan]")
-        table_preview.add_row("[bold]Data:[/bold]", f"{evento.get('data', '(sem data)')}")
-        table_preview.add_row("[bold]Local:[/bold]", f"{evento.get('local', '(sem local)')}")
-        
-        # Link
-        link = evento.get('link', '(sem link)')
-        cupom = evento.get('cupom', '')
-        if cupom:
-            table_preview.add_row("[bold]Cupom:[/bold]", f"[green]{cupom}[/green]")
-        
-        # Modo
-        mode_text = "[green]TESTE (tag 'Test')[/green]" if is_test else "[red]PRODUÇÃO (TODOS)[/red]"
-        table_preview.add_row("[bold]Modo:[/bold]", mode_text)
-        
-        console.print(table_preview)
-        console.print("[bold cyan]═══════════════════════════════════════[/bold cyan]\n")
-        
-        # Confirmação final
-        confirm_final = console.input("[bold]Continuar com o envio? (s/n):[/bold] ").strip().lower()
-        if confirm_final not in ["s", "sim", "y", "yes"]:
-            console.print("[yellow]Operação cancelada.[/yellow]")
-            return
-        
-        # Executar envio
-        console.print("\n[bold cyan]Iniciando envio de emails...[/bold cyan]")
-        result = service.send_batch(message_id=1, dry_run=False, is_test_mode=is_test)
-        
-        # Se for TESTE e enviou com sucesso, reseta flag para próximo envio
-        if is_test and result.get('sent', 0) > 0:
+        config, db, smtp = _load_components(config_path)
+        is_test = not prod
+
+        if prod and clear_flags:
+            if not yes:
+                confirm = console.input("[red]Clear flags + production send. Type 'SIM' to confirm: [/red]").strip()
+                if confirm.upper() != "SIM":
+                    console.print("[yellow]Cancelled.[/yellow]")
+                    raise typer.Exit(0)
+            console.print("[cyan]Clearing send flags...[/cyan]")
             try:
                 db.connect()
-                db.execute("sql/messages/mark_message_unprocessed.sql", [1])
+                db.execute("sql/messages/clear_sent_flags.sql", [message_id])
+                db.execute("sql/messages/mark_message_unprocessed.sql", [message_id])
                 db.close()
-                console.print("[green]✓ Message reset para próximo envio (TESTE)[/green]")
+                console.print("[green]Flags cleared.[/green]")
             except Exception as e:
-                console.print(f"[yellow]⚠️  Não foi possível resetar message: {e}[/yellow]")
-        
-        # Mostrar resultado
-        console.print("\n[bold cyan]Resumo do Envio:[/bold cyan]")
-        table = Table(title="Email Report")
-        table.add_column("Métrica", style="cyan")
-        table.add_column("Valor", style="magenta")
-        
-        table.add_row("Total processado", str(result.get('total_processed', 0)))
-        table.add_row("Enviados", str(result.get('sent', 0)))
-        table.add_row("Falhas", str(result.get('failed', 0)))
-        
-        if result.get('errors'):
-            table.add_row("Erros", str(len(result['errors'])))
-        
-        console.print(table)
-        
+                console.print(f"[red]Error clearing flags: {e}[/red]")
+                raise typer.Exit(1)
+
+        if prod and not yes:
+            confirm = console.input("[red]PRODUCTION mode. Type 'SIM' to confirm: [/red]").strip()
+            if confirm.upper() != "SIM":
+                console.print("[yellow]Cancelled.[/yellow]")
+                raise typer.Exit(0)
+
+        _show_send_preview(config, is_test, dry_run, target_email)
+
+        if not yes and not dry_run:
+            go = console.input("[bold]Proceed? (s/n): [/bold]").strip().lower()
+            if go not in ("s", "sim", "y", "yes"):
+                console.print("[yellow]Cancelled.[/yellow]")
+                raise typer.Exit(0)
+
+        service = EmailService(config, db, smtp)
+        console.print("[cyan]Starting email delivery...[/cyan]")
+        result = service.send_batch(
+            message_id=message_id,
+            dry_run=dry_run,
+            is_test_mode=is_test,
+            target_email=target_email,
+        )
+
+        if is_test and result.get("sent", 0) > 0:
+            try:
+                db.connect()
+                db.execute("sql/messages/mark_message_unprocessed.sql", [message_id])
+                db.close()
+            except Exception:
+                pass
+
+        _show_send_result(result)
+
+    except typer.Exit:
+        raise
     except Exception as e:
-        import traceback
-        console.print(f"\n[red]Erro: {str(e)}[/red]")
-        console.print(f"[red]Traceback:[/red]")
-        console.print(f"[red]{traceback.format_exc()}[/red]")
-        console.print(f"[red]{traceback.format_exc()}[/red]")
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
-def test_smtp_interactive():
-    """Menu interativo para teste de SMTP."""
+def _show_send_preview(config: Config, is_test: bool, dry_run: bool, target_email: Optional[str]) -> None:
+    email_config = config.content_config
+    table = Table(show_header=False, box=None, title="Email Preview")
+    table.add_row("[bold]Subject:[/bold]", email_config.get("email", {}).get("subject", "(none)"))
+    evento = email_config.get("evento", {})
+    table.add_row("[bold]Event:[/bold]", evento.get("nome", "(none)"))
+    table.add_row("[bold]Date:[/bold]", evento.get("data", "(none)"))
+    table.add_row("[bold]Location:[/bold]", evento.get("local", "(none)"))
+    cupom = evento.get("cupom", "")
+    if cupom:
+        table.add_row("[bold]Coupon:[/bold]", cupom)
+    mode = "[green]TEST[/green]" if is_test else "[red]PRODUCTION[/red]"
+    if dry_run:
+        mode += " [yellow](DRY-RUN)[/yellow]"
+    if target_email:
+        mode += f" [cyan](target: {target_email})[/cyan]"
+    table.add_row("[bold]Mode:[/bold]", mode)
+    console.print(table)
+
+
+def _show_send_result(result: dict) -> None:
+    table = Table(title="Send Report")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+    table.add_row("Total processed", str(result.get("total_processed", 0)))
+    table.add_row("Sent", str(result.get("sent", 0)))
+    table.add_row("Failed", str(result.get("failed", 0)))
+    if result.get("errors"):
+        table.add_row("Errors", str(len(result["errors"])))
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# test-smtp
+# ---------------------------------------------------------------------------
+@app.command("test-smtp")
+def test_smtp(
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """Test SMTP connection and authentication."""
     try:
-        config = Config("config/config.yaml")
-        smtp = SmtpManager(config.smtp_config)
-        
-        console.print("\n[bold cyan]Testando conexão SMTP...[/bold cyan]")
+        config = Config(config_path)
+        smtp = SmtpManager(config)
+        console.print("[cyan]Testing SMTP connection...[/cyan]")
         smtp.connect()
-        console.print("[green]✅ Conexão SMTP estabelecida com sucesso[/green]\n")
-        
+        smtp.disconnect()
+        console.print("[green]SMTP connection successful.[/green]")
     except Exception as e:
-        console.print(f"\n[red]❌ Erro na conexão SMTP: {str(e)}[/red]\n")
+        console.print(f"[red]SMTP connection failed: {e}[/red]")
+        raise typer.Exit(1)
 
 
-def list_contacts():
-    """Menu para listar contatos."""
+# ---------------------------------------------------------------------------
+# contacts
+# ---------------------------------------------------------------------------
+@app.command()
+def contacts(
+    limit: int = typer.Option(20, "--limit", "-l", help="Max contacts to display."),
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """List eligible contacts from the database."""
     try:
-        config = Config("config/config.yaml")
+        config = Config(config_path)
         db = Database(config)
-        
-        # Buscar contatos elegíveis
-        query_path = "sql/contacts/select_recipients_for_message.sql"
-        contacts = db.fetch_all(query_path, [False])
-        
-        console.print(f"\n[bold cyan]Encontrados {len(contacts)} contatos elegíveis[/bold cyan]\n")
-        
-        if contacts:
-            table = Table(title="Contatos")
+        db.connect()
+        all_contacts = db.fetch_all("sql/contacts/select_recipients_for_message.sql", [False, 1])
+        db.close()
+
+        console.print(f"[cyan]{len(all_contacts)} eligible contacts found.[/cyan]")
+        if all_contacts:
+            table = Table(title="Contacts")
             table.add_column("ID", style="cyan")
             table.add_column("Email", style="magenta")
-            
-            for contact_id, email in contacts[:10]:  # Mostrar os primeiros 10
-                table.add_row(str(contact_id), email)
-            
-            if len(contacts) > 10:
-                table.add_row("[...]", f"+{len(contacts) - 10} mais")
-            
+            for c in all_contacts[:limit]:
+                cid = c.get("id", c[0]) if isinstance(c, dict) else c[0]
+                email = c.get("email", c[1]) if isinstance(c, dict) else c[1]
+                table.add_row(str(cid), str(email))
+            if len(all_contacts) > limit:
+                table.add_row("...", f"+{len(all_contacts) - limit} more")
             console.print(table)
-        
     except Exception as e:
-        console.print(f"\n[red]Erro: {str(e)}[/red]\n")
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
-def import_contacts_csv():
-    """Menu para importar contatos de arquivo CSV."""
+# ---------------------------------------------------------------------------
+# import-csv
+# ---------------------------------------------------------------------------
+@app.command("import-csv")
+def import_csv(
+    csv_file: str = typer.Argument("contacts.csv", help="Path to the CSV file with an 'email' column."),
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """Import contacts from a CSV file into the database."""
+    csv_path = Path(csv_file)
+    if not csv_path.exists():
+        console.print(f"[red]File not found: {csv_file}[/red]")
+        raise typer.Exit(1)
+
     try:
-        import csv
-        from pathlib import Path
-        
-        csv_file = Path("contacts.csv")
-        
-        if not csv_file.exists():
-            console.print(f"\n[red]❌ Arquivo 'contacts.csv' não encontrado[/red]")
-            console.print("[yellow]Crie um arquivo 'contacts.csv' na raiz do projeto com coluna 'email'[/yellow]\n")
-            return
-        
-        config = Config("config/config.yaml")
+        config = Config(config_path)
         db = Database(config)
-        
-        # Ler CSV
-        emails = []
+        db.connect()
+
+        emails: list[str] = []
         duplicates = 0
-        
-        with open(csv_file, 'r', encoding='utf-8') as f:
+        with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                email = row.get('email', '').strip().lower()
+                email = row.get("email", "").strip().lower()
                 if email:
                     if email in emails:
                         duplicates += 1
                     else:
                         emails.append(email)
-        
+
         if not emails:
-            console.print("\n[red]❌ Nenhum email encontrado no arquivo[/red]\n")
-            return
-        
-        console.print(f"\n[bold cyan]Importando {len(emails)} contatos...[/bold cyan]")
-        
-        # Inserir no BD
+            console.print("[red]No emails found in file.[/red]")
+            raise typer.Exit(1)
+
         inserted = 0
         for email in emails:
             try:
-                # Verificar se já existe
-                check_query = "SELECT id FROM tbl_contacts WHERE email = %s LIMIT 1"
-                existing = db.fetch_one(check_query, [email])
-                
+                existing = db.fetch_one("sql/contacts/select_contact_by_email.sql", [email])
                 if not existing:
-                    insert_query = "INSERT INTO tbl_contacts (email, unsubscribed) VALUES (%s, false)"
-                    db.execute(insert_query, [email])
+                    db.execute("sql/contacts/insert_contact.sql", [email])
                     inserted += 1
             except Exception as e:
-                console.print(f"[red]Erro ao inserir {email}: {str(e)}[/red]")
-        
-        console.print(f"[green]✅ Importados {inserted} novos contatos[/green]")
-        if duplicates > 0:
-            console.print(f"[yellow]⚠️  {duplicates} duplicados ignorados[/yellow]")
-        console.print()
-        
+                console.print(f"[red]Error inserting {email}: {e}[/red]")
+
+        db.close()
+        console.print(f"[green]Imported {inserted} new contacts.[/green]")
+        if duplicates:
+            console.print(f"[yellow]{duplicates} duplicates skipped.[/yellow]")
+
+    except typer.Exit:
+        raise
     except Exception as e:
-        console.print(f"\n[red]Erro na importação: {str(e)}[/red]\n")
+        console.print(f"[red]Import error: {e}[/red]")
+        raise typer.Exit(1)
 
 
-def edit_event_interactive():
-    """Menu interativo para editar os dados do evento."""
+# ---------------------------------------------------------------------------
+# edit-event
+# ---------------------------------------------------------------------------
+@app.command("edit-event")
+def edit_event(
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """Interactively edit event data stored in email.yaml."""
     try:
-        config = Config()
+        config = Config(config_path)
         email_config = config.content_config
+        evento = email_config.get("evento", {})
+        email_data = email_config.get("email", {})
 
-        console.print("\n[bold cyan]✏️ Editando Dados do Evento[/bold cyan]")
-        console.print("Deixe em branco para manter o valor atual.")
+        console.print("[cyan]Editing event data (leave blank to keep current).[/cyan]")
 
-        evento = email_config.get('evento', {})
-        
-        # Editar dados do evento
-        novo_nome = console.input(f"  [bold]Nome[/bold] ([cyan]{evento.get('nome', '')}[/cyan]): ").strip()
-        if novo_nome:
-            evento['nome'] = novo_nome
+        fields = [
+            ("nome", "Name"),
+            ("data", "Date"),
+            ("local", "Location"),
+            ("link", "Link"),
+            ("cupom", "Coupon"),
+        ]
+        for key, label in fields:
+            current = evento.get(key, "")
+            new_val = console.input(f"  [bold]{label}[/bold] ([cyan]{current}[/cyan]): ").strip()
+            if new_val:
+                evento[key] = new_val
 
-        nova_data = console.input(f"  [bold]Data[/bold] ([cyan]{evento.get('data', '')}[/cyan]): ").strip()
-        if nova_data:
-            evento['data'] = nova_data
+        current_subject = email_data.get("subject", "")
+        new_subject = console.input(f"  [bold]Subject[/bold] ([yellow]{current_subject}[/yellow]): ").strip()
+        if new_subject:
+            email_data["subject"] = new_subject
 
-        novo_local = console.input(f"  [bold]Local[/bold] ([cyan]{evento.get('local', '')}[/cyan]): ").strip()
-        if novo_local:
-            evento['local'] = novo_local
-            
-        novo_link = console.input(f"  [bold]Link[/bold] ([cyan]{evento.get('link', '')}[/cyan]): ").strip()
-        if novo_link:
-            evento['link'] = novo_link
-
-        novo_cupom = console.input(f"  [bold]Cupom[/bold] ([cyan]{evento.get('cupom', '')}[/cyan]): ").strip()
-        if novo_cupom:
-            evento['cupom'] = novo_cupom
-
-        # Editar assunto do email
-        email_data = email_config.get('email', {})
-        novo_assunto = console.input(f"  [bold]Assunto do Email[/bold] ([yellow]{email_data.get('subject', '')}[/yellow]): ").strip()
-        if novo_assunto:
-            email_data['subject'] = novo_assunto
-
-        # Salvar alterações
-        config.email_content['evento'] = evento
-        config.email_content['email'] = email_data
+        config.email_content["evento"] = evento
+        config.email_content["email"] = email_data
         config.save_content_config()
-
-        console.print("\n[green]✅ Dados do evento atualizados com sucesso![/green]")
+        console.print("[green]Event data updated.[/green]")
 
     except Exception as e:
-        console.print(f"\n[red]❌ Erro ao editar evento: {str(e)}[/red]\n")
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# clean-db
+# ---------------------------------------------------------------------------
+@app.command("clean-db")
+def clean_db(
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """Run database maintenance operations."""
+    console.print("[cyan]Database Maintenance[/cyan]")
+    console.print("[yellow]Warning: these actions are irreversible.[/yellow]")
+
+    table = Table(show_header=False, box=None)
+    table.add_row("[bold]1[/bold]", "Remove duplicate contacts")
+    table.add_row("[bold]2[/bold]", "Run full maintenance (SQL)")
+    table.add_row("[bold]3[/bold]", "Cancel")
+    console.print(table)
+
+    choice = console.input("[bold]Choose: [/bold]").strip()
+
+    if choice == "1":
+        confirm = console.input("[red]Type 'SIM' to confirm: [/red]").strip()
+        if confirm.upper() == "SIM":
+            try:
+                import subprocess
+                proc = subprocess.run(["python", "scripts/remove_duplicate_contacts.py"], capture_output=True, text=True)
+                if proc.returncode == 0:
+                    console.print(f"[green]Done.[/green]\n{proc.stdout}")
+                else:
+                    console.print(f"[red]Error:[/red]\n{proc.stderr}")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+        else:
+            console.print("[yellow]Cancelled.[/yellow]")
+
+    elif choice == "2":
+        confirm = console.input("[red]Type 'SIM' to confirm: [/red]").strip()
+        if confirm.upper() == "SIM":
+            try:
+                config = Config(config_path)
+                db = Database(config)
+                db.connect()
+                db.execute("sql/maintenance/database_maintenance.sql")
+                db.close()
+                console.print("[green]Maintenance complete.[/green]")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+        else:
+            console.print("[yellow]Cancelled.[/yellow]")
+    else:
+        console.print("[yellow]Cancelled.[/yellow]")
+
+
+# ---------------------------------------------------------------------------
+# bounces
+# ---------------------------------------------------------------------------
+@app.command()
+def bounces(
+    config_path: str = typer.Option("config/config.yaml", "--config", help="Path to config.yaml."),
+) -> None:
+    """Fetch and process hardbounces from Locaweb SMTP, removing them from the mailing list."""
+    try:
+        from .hardbounce_manager import HardbounceManager
+
+        config = Config(config_path)
+        db = Database(config)
+        manager = HardbounceManager(config, db)
+        result = manager.process_bounces()
+
+        console.print(f"[cyan]Hardbounces processed.[/cyan]")
+        console.print(f"  Fetched: {result['fetched']}")
+        console.print(f"  Tagged: {result['tagged']}")
+        console.print(f"  Already tagged: {result['already_tagged']}")
+        if result.get("errors"):
+            for err in result["errors"]:
+                console.print(f"  [red]Error: {err}[/red]")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Interactive menu (default)
+# ---------------------------------------------------------------------------
+def _show_menu() -> str:
+    console.print("\n[bold cyan]Treineinsite - Email Sender CLI[/bold cyan]\n")
+    table = Table(show_header=False, box=None)
+    table.add_row("[bold]1[/bold]", "Send emails")
+    table.add_row("[bold]2[/bold]", "Test SMTP")
+    table.add_row("[bold]3[/bold]", "List contacts")
+    table.add_row("[bold]4[/bold]", "Import contacts (CSV)")
+    table.add_row("[bold]5[/bold]", "Edit event")
+    table.add_row("[bold]6[/bold]", "Clean database")
+    table.add_row("[bold]7[/bold]", "Manage hardbounces")
+    table.add_row("[bold]8[/bold]", "Exit")
+    console.print(table)
+    return console.input("\n[bold]Choose an option:[/bold] ").strip()
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context, option: Optional[str] = typer.Argument(None)):
-    """
-    Menu interativo da CLI.
-    
-    Uso:
-        uv run -m email_sender.cli        # Menu interativo
-        uv run -m email_sender.cli 1      # Enviar emails
-        uv run -m email_sender.cli 2      # Testar SMTP
-        uv run -m email_sender.cli 3      # Ver contatos
-        uv run -m email_sender.cli 4      # Importar contatos
-        uv run -m email_sender.cli 5      # Editar evento
-        uv run -m email_sender.cli 6      # Sair
-    """
-    
-    # Se passou um argumento, usar como opção
-    if option:
-        choice = option
+def main(ctx: typer.Context) -> None:
+    """Treineinsite Email Sender - interactive menu or use subcommands above."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    choice = _show_menu()
+    dispatch = {
+        "1": lambda: _send_menu(),
+        "2": lambda: test_smtp(config_path="config/config.yaml"),
+        "3": lambda: contacts(limit=20, config_path="config/config.yaml"),
+        "4": lambda: import_csv(csv_file="contacts.csv", config_path="config/config.yaml"),
+        "5": lambda: edit_event(config_path="config/config.yaml"),
+        "6": lambda: clean_db(config_path="config/config.yaml"),
+        "7": lambda: bounces(config_path="config/config.yaml"),
+        "8": lambda: _exit_app(),
+    }
+
+    action = dispatch.get(choice)
+    if action:
+        action()
     else:
-        # Mostrar menu interativo
-        choice = show_menu()
-    
-    # Processar escolha
-    if choice == "1":
-        send_emails_interactive()
-    elif choice == "2":
-        test_smtp_interactive()
-    elif choice == "3":
-        list_contacts()
-    elif choice == "4":
-        import_contacts_csv()
-    elif choice == "5":
-        edit_event_interactive()
-    elif choice == "6" or choice.lower() == "sair":
-        console.print("\n[yellow]Até logo![/yellow]\n")
-        raise typer.Exit(0)
-    else:
-        console.print("\n[red]Opção inválida![/red]\n")
+        console.print("[red]Invalid option.[/red]")
         raise typer.Exit(1)
+
+
+def _send_menu() -> None:
+    console.print("\n[bold]Modo de envio:[/bold]")
+    table = Table(show_header=False, box=None)
+    table.add_row("[bold]1[/bold]", "[green]Teste[/green] (somente contatos de teste)")
+    table.add_row("[bold]2[/bold]", "[red]Produção[/red] (todos os contatos)")
+    table.add_row("[bold]3[/bold]", "Voltar")
+    console.print(table)
+    mode_choice = console.input("[bold]Modo: [/bold]").strip()
+
+    if mode_choice == "3":
+        return
+    if mode_choice not in ("1", "2"):
+        console.print("[red]Opção inválida.[/red]")
+        return
+
+    is_prod = mode_choice == "2"
+
+    clear = False
+    if console.input("[bold]Limpar flags de envio antes de enviar? (s/n): [/bold]").strip().lower() in ("s", "sim", "y", "yes"):
+        clear = True
+
+    send(
+        message_id=1,
+        prod=is_prod,
+        dry_run=False,
+        clear_flags=clear,
+        target_email=None,
+        yes=False,
+        config_path="config/config.yaml",
+    )
+
+
+def _exit_app() -> None:
+    console.print("[yellow]Goodbye![/yellow]")
+    raise typer.Exit(0)
 
 
 if __name__ == "__main__":
